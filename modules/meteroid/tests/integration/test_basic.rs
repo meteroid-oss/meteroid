@@ -41,6 +41,7 @@ async fn test_main() {
             email_delivery_mode: None,
             sandbox_preset: 0,
             copy_from: None,
+            sandbox_template: None,
         }))
         .await
         .unwrap()

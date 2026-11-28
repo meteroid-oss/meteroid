@@ -585,7 +585,7 @@ pub fn currencies_scenario(now: NaiveDate) -> Scenario {
     acme.tax_resolver = Some(TaxResolverEnum::Manual);
 
     Scenario {
-        template: meteroid_store::hooks::SandboxTemplate::Other,
+        template: meteroid_store::hooks::SandboxTemplate::default(),
         name: "Acme Analytics".to_string(),
         metrics: vec![events_metric, llm_metric],
         rate_cards: vec![llm_rate_card(rates_from)],

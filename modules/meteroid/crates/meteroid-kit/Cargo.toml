@@ -9,6 +9,7 @@ license.workspace = true
 meteroid-rest-common.workspace = true
 meteroid-app.workspace = true
 thiserror.workspace = true
+error-stack.workspace = true
 common-logging = { workspace = true }
 rate-limiter = { workspace = true, features = ["tonic", "axum"] }
 redis-rate-limiter.workspace = true

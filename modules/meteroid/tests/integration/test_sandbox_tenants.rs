@@ -57,6 +57,7 @@ async fn core_seeds_sandbox_tenants_but_none_at_signup() {
             email_delivery_mode: None,
             sandbox_preset: SandboxPreset::Default as i32,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .expect("core creates a sandbox without the sandboxes module")
@@ -97,6 +98,7 @@ async fn core_seeds_sandbox_tenants_but_none_at_signup() {
             email_delivery_mode: None,
             sandbox_preset: SandboxPreset::AiCredits as i32,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .unwrap_err();
@@ -165,6 +167,7 @@ async fn the_currencies_and_coupons_preset_prices_three_currencies_and_applies_c
             email_delivery_mode: None,
             sandbox_preset: SandboxPreset::CurrenciesAndCoupons as i32,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .expect("open to every tenant")

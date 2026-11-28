@@ -5083,6 +5083,7 @@ dependencies = [
  "common-logging",
  "dotenvy",
  "egress-guard",
+ "error-stack",
  "fred",
  "meteroid-app",
  "meteroid-grpc",

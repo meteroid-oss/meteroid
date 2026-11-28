@@ -110,7 +110,7 @@ fn days_ago(days: i64) -> When {
 
 pub fn pulse_scenario(now: NaiveDate) -> Scenario {
     Scenario {
-        template: meteroid_store::hooks::SandboxTemplate::Other,
+        template: meteroid_store::hooks::SandboxTemplate::default(),
         name: "Pulse".to_string(),
         metrics: vec![metric(
             AI_ACTIONS,

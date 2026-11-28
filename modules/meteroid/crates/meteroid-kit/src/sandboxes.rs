@@ -3,10 +3,12 @@
 use std::sync::Arc;
 
 use common_domain::ids::OrganizationId;
+use error_stack::Report;
 use meteroid_grpc::meteroid::api::tenants::v1::SandboxPreset;
 use meteroid_seeder::{presets, warmup};
 use meteroid_store::domain::Tenant;
 use meteroid_store::domain::enums::EmailDeliveryMode;
+use meteroid_store::errors::StoreError;
 use meteroid_store::hooks::AnalyticsHook;
 use meteroid_store::{Services, Store, StoreResult};
 
@@ -29,6 +31,19 @@ pub trait Sandboxes: Send + Sync {
         email_delivery_mode: Option<EmailDeliveryMode>,
         preset: SandboxPreset,
     ) -> StoreResult<Tenant>;
+
+    /// A sandbox of a template an edition adds, by its code; core adds none.
+    async fn create_template(
+        &self,
+        _organization_id: OrganizationId,
+        _name: String,
+        _email_delivery_mode: Option<EmailDeliveryMode>,
+        template: &str,
+    ) -> StoreResult<Tenant> {
+        Err(Report::new(StoreError::InvalidArgument(format!(
+            "No sandbox template `{template}` in this edition."
+        ))))
+    }
 }
 
 /// Seeds a preset, then finalizes it once its history is billed so the data reads as live.
@@ -47,23 +62,15 @@ impl SeededSandboxes {
             analytics: ctx.analytics.clone(),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl Sandboxes for SeededSandboxes {
-    async fn create(
+    /// Seeds `scenario`, then warms it up in the background.
+    pub async fn create_scenario(
         &self,
         organization_id: OrganizationId,
         name: String,
         email_delivery_mode: Option<EmailDeliveryMode>,
-        preset: SandboxPreset,
+        scenario: presets::Scenario,
     ) -> StoreResult<Tenant> {
-        let scenario = match preset {
-            SandboxPreset::Default => presets::default_scenario(),
-            SandboxPreset::AiCredits => presets::ai_credits_scenario(),
-            SandboxPreset::CurrenciesAndCoupons => presets::currencies_scenario(),
-            SandboxPreset::AiOperator => presets::ai_operator_scenario(),
-        };
         let tenant = presets::run_preset(
             &self.store,
             &self.services,
@@ -81,5 +88,24 @@ impl Sandboxes for SeededSandboxes {
             tenant.id,
         );
         Ok(tenant)
+    }
+}
+
+#[async_trait::async_trait]
+impl Sandboxes for SeededSandboxes {
+    async fn create(
+        &self,
+        organization_id: OrganizationId,
+        name: String,
+        email_delivery_mode: Option<EmailDeliveryMode>,
+        preset: SandboxPreset,
+    ) -> StoreResult<Tenant> {
+        let scenario = match preset {
+            SandboxPreset::Default => presets::default_scenario(),
+            SandboxPreset::AiCredits => presets::ai_credits_scenario(),
+            SandboxPreset::CurrenciesAndCoupons => presets::currencies_scenario(),
+        };
+        self.create_scenario(organization_id, name, email_delivery_mode, scenario)
+            .await
     }
 }

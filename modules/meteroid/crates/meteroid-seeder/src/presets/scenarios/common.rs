@@ -12,7 +12,7 @@ use meteroid_store::domain::{
 };
 use rust_decimal::Decimal;
 
-pub(crate) fn customer(
+pub fn customer(
     name: &str,
     currency: &str,
     country: &str,
@@ -46,7 +46,7 @@ pub(crate) fn customer(
     }
 }
 
-pub(crate) fn metric(
+pub fn metric(
     code: &str,
     name: &str,
     agg: BillingMetricAggregateEnum,
@@ -63,7 +63,7 @@ pub(crate) fn metric(
 }
 
 /// A flat monthly recurring charge.
-pub(crate) fn rate(name: &str, price: Decimal) -> PriceComponent {
+pub fn rate(name: &str, price: Decimal) -> PriceComponent {
     PriceComponent {
         name: name.to_string(),
         fee: FeeType::Rate {
@@ -76,7 +76,7 @@ pub(crate) fn rate(name: &str, price: Decimal) -> PriceComponent {
 }
 
 /// A per-unit metered usage charge over `metric_code`.
-pub(crate) fn usage(name: &str, metric_code: &str, unit_rate: Decimal) -> PriceComponent {
+pub fn usage(name: &str, metric_code: &str, unit_rate: Decimal) -> PriceComponent {
     PriceComponent {
         name: name.to_string(),
         fee: FeeType::Usage {
@@ -90,7 +90,7 @@ pub(crate) fn usage(name: &str, metric_code: &str, unit_rate: Decimal) -> PriceC
 
 /// A per-seat slot charge, named "Seats" so the runner can set each
 /// subscription's initial seat count.
-pub(crate) fn seats(unit_price: Decimal) -> PriceComponent {
+pub fn seats(unit_price: Decimal) -> PriceComponent {
     PriceComponent {
         name: "Seats".to_string(),
         fee: FeeType::Slot {
@@ -109,7 +109,7 @@ pub(crate) fn seats(unit_price: Decimal) -> PriceComponent {
 }
 
 /// A flat monthly add-on catalog entry.
-pub(crate) fn add_on(name: &str, price: Decimal) -> AddOn {
+pub fn add_on(name: &str, price: Decimal) -> AddOn {
     AddOn {
         name: name.to_string(),
         price,
@@ -117,7 +117,7 @@ pub(crate) fn add_on(name: &str, price: Decimal) -> AddOn {
     }
 }
 
-pub(crate) fn org(vat: &str, city: &str, zip: &str) -> OrganizationDetails {
+pub fn org(vat: &str, city: &str, zip: &str) -> OrganizationDetails {
     OrganizationDetails {
         vat_number: Some(vat.to_string()),
         address_line1: Some("1 Demo Street".to_string()),

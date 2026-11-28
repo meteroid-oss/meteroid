@@ -40,14 +40,17 @@ fn ensure_sandbox_preset_entitled(
 ) -> Result<(), Status> {
     match preset {
         SandboxPreset::Default | SandboxPreset::CurrenciesAndCoupons => Ok(()),
-        SandboxPreset::AiCredits | SandboxPreset::AiOperator
-            if resolved.is_enabled(gates::ADMIN_SANDBOXES) =>
-        {
-            Ok(())
-        }
-        SandboxPreset::AiCredits | SandboxPreset::AiOperator => Err(Status::permission_denied(
+        SandboxPreset::AiCredits => ensure_admin_sandboxes(resolved),
+    }
+}
+
+fn ensure_admin_sandboxes(resolved: &ResolvedEntitlements) -> Result<(), Status> {
+    if resolved.is_enabled(gates::ADMIN_SANDBOXES) {
+        Ok(())
+    } else {
+        Err(Status::permission_denied(
             "This sandbox example is not enabled for this organization.",
-        )),
+        ))
     }
 }
 
@@ -314,6 +317,10 @@ impl TenantsService for TenantServiceComponents {
         let actor = request.actor_typed()?;
         let request = request.into_inner();
         let preset = request.sandbox_preset();
+        let template = request
+            .sandbox_template
+            .clone()
+            .filter(|template| !template.trim().is_empty());
         let copy_from = request.copy_from.clone();
         let req = mapping::tenants::create_req_to_domain(request)?;
 
@@ -353,14 +360,27 @@ impl TenantsService for TenantServiceComponents {
                 .collect();
             created.tenant
         } else if req.environment == TenantEnvironmentEnum::Sandbox {
-            ensure_sandbox_preset_entitled(
-                preset,
-                &self.feature_resolver.resolve(organization_id).await,
-            )?;
-            self.sandboxes
-                .create(organization_id, req.name, req.email_delivery_mode, preset)
-                .await
-                .map_err(Into::<TenantApiError>::into)?
+            let resolved = self.feature_resolver.resolve(organization_id).await;
+            match template {
+                Some(template) => {
+                    ensure_admin_sandboxes(&resolved)?;
+                    self.sandboxes
+                        .create_template(
+                            organization_id,
+                            req.name,
+                            req.email_delivery_mode,
+                            &template,
+                        )
+                        .await
+                }
+                None => {
+                    ensure_sandbox_preset_entitled(preset, &resolved)?;
+                    self.sandboxes
+                        .create(organization_id, req.name, req.email_delivery_mode, preset)
+                        .await
+                }
+            }
+            .map_err(Into::<TenantApiError>::into)?
         } else {
             self.store
                 .insert_tenant(req, organization_id)
@@ -530,10 +550,9 @@ mod tests {
     }
 
     #[test]
-    fn the_ai_operator_example_is_an_admin_sandbox() {
-        let unflagged = ResolvedEntitlements::with_enabled(&[]);
-        assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiOperator, &unflagged).is_err());
+    fn an_edition_template_is_an_admin_sandbox() {
+        assert!(ensure_admin_sandboxes(&ResolvedEntitlements::with_enabled(&[])).is_err());
         let flagged = ResolvedEntitlements::with_enabled(&[gates::ADMIN_SANDBOXES]);
-        assert!(ensure_sandbox_preset_entitled(SandboxPreset::AiOperator, &flagged).is_ok());
+        assert!(ensure_admin_sandboxes(&flagged).is_ok());
     }
 }

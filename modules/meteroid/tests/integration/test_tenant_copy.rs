@@ -123,6 +123,7 @@ async fn test_copy_configuration_into_a_production_tenant() {
                 catalog: true,
                 invoicing: true,
             }),
+            sandbox_template: None,
         })
         .await
         .unwrap()
@@ -220,6 +221,7 @@ async fn test_copy_refused_from_another_organization_tenant_or_into_a_sandbox() 
                 catalog: true,
                 invoicing: false,
             }),
+            sandbox_template: None,
         }
     };
 
@@ -339,6 +341,7 @@ async fn test_copy_refused_while_an_audience_names_customers() {
             catalog: true,
             invoicing,
         }),
+        sandbox_template: None,
     };
 
     let refused = clients

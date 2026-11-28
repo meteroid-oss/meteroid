@@ -47,8 +47,8 @@ enum SandboxPreset {
   SANDBOX_PRESET_DEFAULT = 0;
   SANDBOX_PRESET_AI_CREDITS = 1;
   SANDBOX_PRESET_CURRENCIES_AND_COUPONS = 2;
-  // An inference cloud billing tokens by model, with a cost book and the AI module on.
-  SANDBOX_PRESET_AI_OPERATOR = 3;
+  // An edition's own templates are named by `CreateTenantRequest.sandbox_template`.
+  reserved 3;
 }
 
 message CreateTenantRequest {
@@ -61,6 +61,9 @@ message CreateTenantRequest {
   SandboxPreset sandbox_preset = 5;
   // Sets the new tenant up like another tenant of the organization. Not for a sandbox.
   optional TenantConfigurationCopy copy_from = 6;
+  // A sandbox template the edition adds, by its code, in place of `sandbox_preset`. An admin
+  // sandbox: it needs the admin sandboxes gate.
+  optional string sandbox_template = 7;
 }
 
 // Never customers, subscriptions, invoices or payments, nor connectors, webhooks and notification

@@ -248,6 +248,7 @@ async fn test_delete_sole_member_of_org_with_production_tenant() {
             email_delivery_mode: None,
             sandbox_preset: 0,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .unwrap();

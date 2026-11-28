@@ -1192,6 +1192,7 @@ pub(crate) async fn second_tenant_key(f: &Fixture) -> String {
             email_delivery_mode: None,
             sandbox_preset: 0,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .unwrap()

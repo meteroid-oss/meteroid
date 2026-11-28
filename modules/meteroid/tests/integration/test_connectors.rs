@@ -94,6 +94,7 @@ async fn test_connect_mock_is_refused_on_production_tenants() {
             email_delivery_mode: None,
             sandbox_preset: 0,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .unwrap()
@@ -174,6 +175,7 @@ async fn test_live_gateway_is_confined_to_production_tenants() {
             email_delivery_mode: None,
             sandbox_preset: 0,
             copy_from: None,
+            sandbox_template: None,
         })
         .await
         .unwrap()

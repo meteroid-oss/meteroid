@@ -5,10 +5,11 @@ mod history_usage;
 mod preconditions;
 mod replay;
 mod runner;
-mod scenarios;
+pub mod scenarios;
 mod usage_wait;
 
 pub use runner::{run_preset, run_preset_at};
+pub use scenarios::domain::Scenario;
 pub use scenarios::pulse::STAGED_USAGE_CUSTOMERS;
 
 /// The single default sandbox business seeded for every new sandbox tenant:
@@ -26,14 +27,6 @@ pub fn default_scenario() -> scenarios::domain::Scenario {
 /// tenant from Pulse: nothing in it is shared with the default sandbox.
 pub fn ai_credits_scenario() -> scenarios::domain::Scenario {
     scenarios::ai_credits::ai_credits_scenario()
-}
-
-/// "Fjordline Inference", an EU inference cloud reselling models per 1M tokens through LiteLLM:
-/// the AI operator template, with a price card. The `AI_OPERATOR` sandbox preset; an edition's
-/// modules may add to it (a cost book, the AI module on).
-pub fn ai_operator_scenario() -> scenarios::domain::Scenario {
-    let now = chrono::Utc::now().naive_utc().date();
-    scenarios::ai_operator::ai_operator_scenario(now)
 }
 
 /// "Acme Analytics", a product-analytics SaaS selling one ladder of plans in USD, EUR and BRL,

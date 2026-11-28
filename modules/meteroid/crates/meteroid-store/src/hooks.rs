@@ -111,14 +111,9 @@ pub struct SeededSandbox<'a> {
     pub metrics: &'a [BillableMetric],
 }
 
-/// A sandbox template a module adds to; `Other` for those none does.
+/// A sandbox template a module adds to, by the code an edition gives it; empty for core's.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SandboxTemplate {
-    #[default]
-    Other,
-    /// Usage of the LLM usage convention, priced by a rate card.
-    AiOperator,
-}
+pub struct SandboxTemplate(pub &'static str);
 
 /// Told when a tenant's billing history is written after the fact, so derived analytics catch up,
 /// and of the sandbox and tenant lifecycle steps the edition's analytics take part in.

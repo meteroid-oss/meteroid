@@ -422,7 +422,7 @@ fn facts_of(customer: &Customer) -> CustomerFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::presets::scenarios::{ai_credits, ai_operator, currencies, pulse};
+    use crate::presets::scenarios::{ai_credits, currencies, pulse};
 
     #[test]
     fn every_sandbox_passes() {
@@ -430,7 +430,6 @@ mod tests {
         check_scenario(&pulse::pulse_scenario(now.date()), now).unwrap();
         check_scenario(&ai_credits::ai_credits_scenario(), now).unwrap();
         check_scenario(&currencies::currencies_scenario(now.date()), now).unwrap();
-        check_scenario(&ai_operator::ai_operator_scenario(now.date()), now).unwrap();
     }
 
     #[test]

@@ -7,6 +7,7 @@ import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { slotItems, useVisibleItems } from '@/edition'
 import { entitlementCodes, useEntitlement, useFeaturesQuery } from '@/hooks/useEntitlement'
 import { useIsCloud } from '@/hooks/useIsCloud'
 import { buildSyncParam } from '@/hooks/useSyncQueries'
@@ -29,7 +30,8 @@ const tenantSchema = z.object({
       })
     }
   }),
-  sandboxPreset: z.string().transform((val: string) => Number(val) as SandboxPreset),
+  // A core preset's number, or `template:<code>` for one an edition adds.
+  sandboxPreset: z.string(),
   copyFrom: z.string(),
   copyCatalog: z.boolean(),
   copyInvoicing: z.boolean(),
@@ -76,14 +78,15 @@ const sandboxPresetLabels: Record<SandboxPreset, string> = {
   [SandboxPreset.DEFAULT]: 'Team collaboration SaaS',
   [SandboxPreset.AI_CREDITS]: 'AI API with prepaid credits (live usage)',
   [SandboxPreset.CURRENCIES_AND_COUPONS]: 'Plans in three currencies, with coupons',
-  [SandboxPreset.AI_OPERATOR]: 'AI inference cloud reselling models per token',
 }
+
+const TEMPLATE = 'template:'
 
 // The selects hold the enums as strings; the schema turns them back into numbers.
 const DEFAULT_VALUES = {
   name: '',
   environment: `${TenantEnvironmentEnum.DEVELOPMENT}` as unknown as TenantEnvironmentEnum,
-  sandboxPreset: `${SandboxPreset.DEFAULT}` as unknown as SandboxPreset,
+  sandboxPreset: `${SandboxPreset.DEFAULT}`,
   copyFrom: START_EMPTY,
   copyCatalog: true,
   copyInvoicing: true,
@@ -126,7 +129,9 @@ export const useCreateTenantForm = () => {
       .mutateAsync({
         name: values.name,
         environment: values.environment,
-        sandboxPreset: values.sandboxPreset,
+        ...(values.sandboxPreset.startsWith(TEMPLATE)
+          ? { sandboxTemplate: values.sandboxPreset.slice(TEMPLATE.length) }
+          : { sandboxPreset: Number(values.sandboxPreset) as SandboxPreset }),
         copyFrom: copying
           ? {
               tenantId: values.copyFrom,
@@ -175,21 +180,25 @@ export const CreateTenantFields = ({ methods }: { methods: TenantForm }) => {
   const isProduction = Number(environment) === TenantEnvironmentEnum.PRODUCTION
 
   const adminSandboxes = useEntitlement(entitlementCodes.ADMIN_SANDBOXES)
-  const presets = useMemo(
+  const templates = useVisibleItems(slotItems('tenantCreate.sandboxTemplates'), undefined)
+  const examples = useMemo(
     () => [
-      SandboxPreset.DEFAULT,
-      SandboxPreset.CURRENCIES_AND_COUPONS,
-      ...(adminSandboxes ? [SandboxPreset.AI_CREDITS, SandboxPreset.AI_OPERATOR] : []),
+      ...[
+        SandboxPreset.DEFAULT,
+        SandboxPreset.CURRENCIES_AND_COUPONS,
+        ...(adminSandboxes ? [SandboxPreset.AI_CREDITS] : []),
+      ].map(preset => ({ value: `${preset}`, label: sandboxPresetLabels[preset] })),
+      ...templates.map(t => ({ value: `${TEMPLATE}${t.code}`, label: t.label })),
     ],
-    [adminSandboxes]
+    [adminSandboxes, templates]
   )
   useEffect(() => {
-    if (!presets.includes(Number(sandboxPreset))) {
-      methods.setValue('sandboxPreset', `${SandboxPreset.DEFAULT}` as unknown as SandboxPreset, {
+    if (!examples.some(example => example.value === sandboxPreset)) {
+      methods.setValue('sandboxPreset', `${SandboxPreset.DEFAULT}`, {
         shouldValidate: true,
       })
     }
-  }, [presets, sandboxPreset, methods])
+  }, [examples, sandboxPreset, methods])
 
   return (
     <div className="w-full space-y-4">
@@ -267,9 +276,9 @@ export const CreateTenantFields = ({ methods }: { methods: TenantForm }) => {
           control={methods.control}
           placeholder="Select an example"
         >
-          {presets.map(preset => (
-            <SelectItem key={preset} value={`${preset}`}>
-              {sandboxPresetLabels[preset]}
+          {examples.map(example => (
+            <SelectItem key={example.value} value={example.value}>
+              {example.label}
             </SelectItem>
           ))}
         </SelectFormField>

@@ -615,6 +615,13 @@ export interface ComponentSlots {
 }
 
 /** Every slot, keyed to the item a module contributes; component slots take the component. */
+/** A sandbox template an edition adds to the new-tenant form, by the code the API takes. */
+export interface SandboxTemplateOption {
+  code: string
+  label: string
+  useVisible: () => boolean
+}
+
 export type Slots = {
   /** Sections of the sidebar's main navigation, each after the core entry it names. */
   'layout.navMain': NavMainSection
@@ -659,6 +666,8 @@ export type Slots = {
   'walletList.filters': WalletListFilter
   /** Cards of the plan's "More for this plan", after the core ones. */
   'planDetail.extras': PlanDetailExtra
+  /** Example data a new sandbox can be filled with, after the core examples. */
+  'tenantCreate.sandboxTemplates': SandboxTemplateOption
 } & { [K in keyof ComponentSlots]: ComponentType<ComponentSlots[K]> }
 
 export interface WebModule {
