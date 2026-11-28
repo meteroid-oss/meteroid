@@ -162,6 +162,7 @@ pub fn actor_id_as_proto(
         ActorType::ApiToken => actor_uuid.map(|u| ApiTokenId::from(u).as_base62()),
         ActorType::Customer => actor_uuid.map(|u| CustomerId::from(u).as_base62()),
         ActorType::OAuthApp => actor_uuid.map(|u| OAuthAppId::from(u).as_base62()),
+        ActorType::Workflow => actor_uuid.map(|u| WorkflowId::from(u).as_base62()),
         ActorType::QuoteRecipient => actor_alias.map(|s| s.to_string()),
         ActorType::System => None,
     }
@@ -835,7 +836,10 @@ impl From<&OutboxEvent> for Option<Activity> {
             | OutboxEvent::EntitlementOverrideEndingSoon(_)
             | OutboxEvent::EntitlementOverrideEnded(_)
             | OutboxEvent::SubscriptionTrialEndingSoon(_)
-            | OutboxEvent::RetentionSessionCompleted(_) => return None,
+            | OutboxEvent::RetentionSessionCompleted(_)
+            | OutboxEvent::WorkflowRunStarted(_)
+            | OutboxEvent::WorkflowRunSucceeded(_)
+            | OutboxEvent::WorkflowRunFailed(_) => return None,
         };
         Some(activity)
     }

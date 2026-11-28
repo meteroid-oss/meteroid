@@ -26,10 +26,10 @@ use meteroid_rest::webhooks::out_model::{
     WebhookOutWalletBalanceLowEvent, WebhookOutWalletCreditRecoveredEvent,
     WebhookOutWalletCreditUnrecoveredEvent, WebhookOutWalletDebitedEvent,
     WebhookOutWalletDepletedEvent, WebhookOutWalletFundedEvent, WebhookOutWalletRecoveredEvent,
+    WebhookOutWorkflowRunEvent,
 };
 use meteroid_rest_common::api_versions::receives_v2_payloads;
 use meteroid_rest_common::datetime::ApiDateTime;
-use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use meteroid_store::domain::pgmq::PgmqMessage;
 use meteroid_store::domain::webhooks_out::{
@@ -329,9 +329,7 @@ pub(crate) fn to_webhook_message(
             timestamp,
         )),
         OutboxEvent::PaymentTransactionSaved(e)
-            if e.payment_type.is_collection()
-                && e.status == PaymentStatusEnum::Failed
-                && e.refunded_at.is_none() =>
+            if meteroid_rest::webhooks::out_model::is_failed_collection(&e) =>
         {
             Some(payment_message(
                 id,
@@ -384,6 +382,15 @@ pub(crate) fn to_webhook_message(
         OutboxEvent::SubscriptionTrialEndingSoon(e) => {
             typed!(SubscriptionTrialEndingSoon, WebhookOutTrialEndingEvent, e)
         }
+        OutboxEvent::WorkflowRunStarted(e) => {
+            typed!(WorkflowRunStarted, WebhookOutWorkflowRunEvent, e)
+        }
+        OutboxEvent::WorkflowRunSucceeded(e) => {
+            typed!(WorkflowRunSucceeded, WebhookOutWorkflowRunEvent, e)
+        }
+        OutboxEvent::WorkflowRunFailed(e) => {
+            typed!(WorkflowRunFailed, WebhookOutWorkflowRunEvent, e)
+        }
         OutboxEvent::WalletBalanceLow(e) => {
             typed!(WalletBalanceLow, WebhookOutWalletBalanceLowEvent, e)
         }
@@ -420,8 +427,12 @@ pub(crate) fn to_webhook_message(
             WebhookOutCheckoutPaymentKeptAsCreditEvent,
             e
         ),
-        // Not yet webhook-enabled
-        OutboxEvent::CustomerUpdated(_) => None,
+        OutboxEvent::CustomerUpdated(e) => envelope!(
+            CustomerUpdated,
+            WebhookOutCustomerEvent,
+            WebhookOutCustomerEventData,
+            e
+        ),
         // Emitted on every transaction save; the failure, refund and reversal events are
         // the ones integrators subscribe to.
         OutboxEvent::PaymentTransactionSaved(_) => None,
@@ -518,12 +529,15 @@ impl WebhookOut {
                         .iter()
                         .map(|version| WebhookOutMessageVersion {
                             api_version: (*version).to_owned(),
-                            payload: webhook_payloads::envelope(
-                                message.id,
-                                &message.event_type,
-                                ApiDateTime::from(recorded_at),
-                                version,
-                                &data,
+                            payload: webhook_payloads::with_previous_attributes(
+                                webhook_payloads::envelope(
+                                    message.id,
+                                    &message.event_type,
+                                    ApiDateTime::from(recorded_at),
+                                    version,
+                                    &data,
+                                ),
+                                &event,
                             ),
                         })
                         .collect();
@@ -663,8 +677,8 @@ impl PgmqHandler for WebhookOut {
 mod tests {
     use super::*;
     use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId};
-    use meteroid_store::domain::PaymentTypeEnum;
     use meteroid_store::domain::enums::DeclineKind;
+    use meteroid_store::domain::{PaymentStatusEnum, PaymentTypeEnum};
 
     fn transaction(status: PaymentStatusEnum, payment_type: PaymentTypeEnum) -> OutboxEvent {
         OutboxEvent::payment_transaction_saved(PaymentTransactionEvent {
@@ -953,8 +967,26 @@ mod tests {
             (PaymentStatusEnum::Pending, PaymentTypeEnum::Payment),
             (PaymentStatusEnum::Failed, PaymentTypeEnum::Refund),
         ] {
-            assert!(to_webhook_message(transaction(status, payment_type)).is_none());
+            let saved = transaction(status, payment_type);
+            assert_eq!(
+                meteroid_rest::webhooks::out_model::webhook_event_type(&saved),
+                None
+            );
+            assert!(to_webhook_message(saved).is_none());
         }
+    }
+
+    #[test]
+    fn workflows_see_a_failed_collection_as_its_webhook() {
+        use meteroid_rest::webhooks::out_model::webhook_event_type;
+        let failed = transaction(PaymentStatusEnum::Failed, PaymentTypeEnum::Payment);
+        let message = to_webhook_message(failed.clone())
+            .expect("announced")
+            .expect("serialized");
+        assert_eq!(
+            webhook_event_type(&failed).map(|t| t.to_string()),
+            Some(message.event_type)
+        );
     }
 
     #[test]

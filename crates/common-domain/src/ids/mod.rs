@@ -137,6 +137,10 @@ id_type!(WebhookEndpointId, "whe_");
 id_type!(WebhookMessageId, "whm_");
 id_type!(WebhookDeliveryId, "whd_");
 id_type!(WebhookAttemptId, "wha_");
+id_type!(WorkflowId, "wfl_");
+id_type!(WorkflowVersionId, "wfv_");
+id_type!(WorkflowRunId, "wfr_");
+id_type!(WorkflowStepRunId, "wfs_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

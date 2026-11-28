@@ -160,3 +160,5 @@ pub mod users;
 pub mod wallet_events;
 pub mod webhooks;
 pub mod webhooks_out;
+pub mod workflow_events;
+pub mod workflow_origin;

@@ -20,6 +20,7 @@ pub use crate::domain::wallet_events::{
     WalletBalanceLowEvent, WalletCreditRecoveredEvent, WalletCreditUnrecoveredEvent,
     WalletDebitedEvent, WalletDepletedEvent, WalletFundedEvent, WalletRecoveredEvent,
 };
+pub use crate::domain::workflow_events::WorkflowRunEvent;
 use crate::domain::{
     Address, BillableMetric, BillingMetricAggregateEnum, CreditNote, Customer, Invoice,
     PaymentStatusEnum, PaymentTransaction, PaymentTypeEnum, Quote, RefundMode, ReversalKind,
@@ -114,6 +115,9 @@ pub enum OutboxEvent {
     BudgetExceeded(Box<BudgetAlertEvent>),
     EntitlementTooManyGroups(Box<TooManyGroupsEvent>),
     RetentionSessionCompleted(Box<RetentionSessionEvent>),
+    WorkflowRunStarted(Box<WorkflowRunEvent>),
+    WorkflowRunSucceeded(Box<WorkflowRunEvent>),
+    WorkflowRunFailed(Box<WorkflowRunEvent>),
     /// A paid self-serve checkout whose subscription its resource refused for good: the payment
     /// was kept as customer credit and the session cancelled.
     CheckoutPaymentKeptAsCredit(Box<CheckoutPaymentKeptAsCreditEvent>),
@@ -191,6 +195,9 @@ pub enum EventType {
     EntitlementOverrideEndingSoon,
     EntitlementOverrideEnded,
     SubscriptionTrialEndingSoon,
+    WorkflowRunStarted,
+    WorkflowRunSucceeded,
+    WorkflowRunFailed,
 }
 
 json_value_serde!(OutboxEvent);
@@ -257,6 +264,9 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.id,
             OutboxEvent::RetentionSessionCompleted(event) => event.id,
+            OutboxEvent::WorkflowRunStarted(event)
+            | OutboxEvent::WorkflowRunSucceeded(event)
+            | OutboxEvent::WorkflowRunFailed(event) => event.id,
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.id,
             OutboxEvent::SubscriptionRenewalUpcoming(event) => event.id,
             OutboxEvent::EntitlementOverrideEndingSoon(event)
@@ -326,6 +336,9 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(event) => event.tenant_id,
             OutboxEvent::RetentionSessionCompleted(event) => event.tenant_id,
+            OutboxEvent::WorkflowRunStarted(event)
+            | OutboxEvent::WorkflowRunSucceeded(event)
+            | OutboxEvent::WorkflowRunFailed(event) => event.tenant_id,
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.tenant_id,
             OutboxEvent::SubscriptionRenewalUpcoming(event) => event.tenant_id,
             OutboxEvent::EntitlementOverrideEndingSoon(event)
@@ -399,6 +412,10 @@ impl OutboxEvent {
             | OutboxEvent::EntitlementTooManyGroups(_)
             // The subscription change an offer makes carries its own event.
             | OutboxEvent::RetentionSessionCompleted(_) => None,
+            // What a run's actions change carries its own events.
+            OutboxEvent::WorkflowRunStarted(_)
+            | OutboxEvent::WorkflowRunSucceeded(_)
+            | OutboxEvent::WorkflowRunFailed(_) => None,
             // Its credit is funded by the ledger, which reports it.
             | OutboxEvent::CheckoutPaymentKeptAsCredit(_)
             | OutboxEvent::SubscriptionRenewalUpcoming(_)
@@ -512,6 +529,9 @@ impl OutboxEvent {
                 .feature_id
                 .map_or_else(|| event.customer_id.as_uuid(), |id| id.as_uuid()),
             OutboxEvent::RetentionSessionCompleted(event) => event.session_id.as_uuid(),
+            OutboxEvent::WorkflowRunStarted(event)
+            | OutboxEvent::WorkflowRunSucceeded(event)
+            | OutboxEvent::WorkflowRunFailed(event) => event.run_id.as_uuid(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(event) => event.checkout_session_id.as_uuid(),
             OutboxEvent::SubscriptionRenewalUpcoming(event) => event.subscription_id.as_uuid(),
             OutboxEvent::EntitlementOverrideEndingSoon(event)
@@ -581,6 +601,9 @@ impl OutboxEvent {
             }
             OutboxEvent::EntitlementTooManyGroups(_) => "Feature".to_string(),
             OutboxEvent::RetentionSessionCompleted(_) => "RetentionSession".to_string(),
+            OutboxEvent::WorkflowRunStarted(_)
+            | OutboxEvent::WorkflowRunSucceeded(_)
+            | OutboxEvent::WorkflowRunFailed(_) => "WorkflowRun".to_string(),
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => "CheckoutSession".to_string(),
             OutboxEvent::SubscriptionRenewalUpcoming(_)
             | OutboxEvent::SubscriptionTrialEndingSoon(_) => "Subscription".to_string(),
@@ -655,6 +678,9 @@ impl OutboxEvent {
             OutboxEvent::BudgetExceeded(_) => EventType::BudgetExceeded,
             OutboxEvent::EntitlementTooManyGroups(_) => EventType::EntitlementTooManyGroups,
             OutboxEvent::RetentionSessionCompleted(_) => EventType::RetentionSessionCompleted,
+            OutboxEvent::WorkflowRunStarted(_) => EventType::WorkflowRunStarted,
+            OutboxEvent::WorkflowRunSucceeded(_) => EventType::WorkflowRunSucceeded,
+            OutboxEvent::WorkflowRunFailed(_) => EventType::WorkflowRunFailed,
             OutboxEvent::CheckoutPaymentKeptAsCredit(_) => EventType::CheckoutPaymentKeptAsCredit,
             OutboxEvent::SubscriptionRenewalUpcoming(_) => EventType::SubscriptionRenewalUpcoming,
             OutboxEvent::EntitlementOverrideEndingSoon(_) => {
@@ -854,6 +880,15 @@ impl OutboxEvent {
         }
     }
 
+    pub fn workflow_run(event: WorkflowRunEvent) -> OutboxEvent {
+        use crate::domain::workflow_events::WorkflowRunTransition;
+        match event.transition {
+            WorkflowRunTransition::Started => OutboxEvent::WorkflowRunStarted(Box::new(event)),
+            WorkflowRunTransition::Succeeded => OutboxEvent::WorkflowRunSucceeded(Box::new(event)),
+            WorkflowRunTransition::Failed => OutboxEvent::WorkflowRunFailed(Box::new(event)),
+        }
+    }
+
     pub fn retention_session_completed(event: RetentionSessionEvent) -> OutboxEvent {
         OutboxEvent::RetentionSessionCompleted(Box::new(event))
     }
@@ -954,6 +989,30 @@ pub struct CustomerEvent {
     pub conn_meta: Option<ConnectionMeta>,
     #[serde(default)]
     pub custom_properties: serde_json::Value,
+    /// On `customer.updated`: the previous value of each custom property the change replaced.
+    #[ghost({None})]
+    pub previous_custom_properties: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// The previous value of each custom property that differs between `before` and `after`
+/// (`null` where it was unset); `None` when none changed.
+pub fn replaced_custom_properties(
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let empty = serde_json::Map::new();
+    let before = before.as_object().unwrap_or(&empty);
+    let after = after.as_object().unwrap_or(&empty);
+    let replaced: serde_json::Map<_, _> = before
+        .keys()
+        .chain(after.keys())
+        .filter(|key| before.get(*key) != after.get(*key))
+        .map(|key| {
+            let previous = before.get(key).cloned().unwrap_or(serde_json::Value::Null);
+            (key.clone(), previous)
+        })
+        .collect();
+    (!replaced.is_empty()).then_some(replaced)
 }
 
 impl CustomerEvent {
@@ -1065,6 +1124,9 @@ pub struct SubscriptionEvent {
     pub origin: Option<SubscriptionOrigin>,
     #[serde(default)]
     pub custom_properties: serde_json::Value,
+    /// On `subscription.updated`: the previous value of each custom property the change replaced.
+    #[ghost({None})]
+    pub previous_custom_properties: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[skip_serializing_none]
@@ -1456,6 +1518,8 @@ impl PlanEvent {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OutboxPgmqHeaders {
     pub event_type: EventType,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workflow_origin: Vec<crate::domain::workflow_origin::OriginLink>,
 }
 
 json_value_serde!(OutboxPgmqHeaders);
@@ -1498,6 +1562,7 @@ impl TryInto<common_domain::pgmq::Headers> for OutboxEvent {
     fn try_into(self) -> Result<common_domain::pgmq::Headers, Self::Error> {
         let headers = OutboxPgmqHeaders {
             event_type: self.event_type(),
+            workflow_origin: crate::domain::workflow_origin::current(),
         };
 
         Ok(common_domain::pgmq::Headers(headers.try_into()?))
@@ -1580,6 +1645,9 @@ impl EventType {
             | EventType::BudgetExceeded
             | EventType::EntitlementTooManyGroups
             | EventType::RetentionSessionCompleted
+            | EventType::WorkflowRunStarted
+            | EventType::WorkflowRunSucceeded
+            | EventType::WorkflowRunFailed
             | EventType::SubscriptionRenewalUpcoming
             | EventType::EntitlementOverrideEndingSoon
             | EventType::EntitlementOverrideEnded
@@ -1657,6 +1725,9 @@ impl EventType {
             EventType::BudgetExceeded => BudgetAlertEvent::EXCEEDED_ROUTING_KEY,
             EventType::EntitlementTooManyGroups => TooManyGroupsEvent::ENTITLEMENT_ROUTING_KEY,
             EventType::RetentionSessionCompleted => RetentionSessionEvent::ROUTING_KEY,
+            EventType::WorkflowRunStarted => WorkflowRunEvent::STARTED_ROUTING_KEY,
+            EventType::WorkflowRunSucceeded => WorkflowRunEvent::SUCCEEDED_ROUTING_KEY,
+            EventType::WorkflowRunFailed => WorkflowRunEvent::FAILED_ROUTING_KEY,
             EventType::CheckoutPaymentKeptAsCredit => CheckoutPaymentKeptAsCreditEvent::ROUTING_KEY,
             EventType::SubscriptionRenewalUpcoming => RenewalUpcomingEvent::ROUTING_KEY,
             EventType::EntitlementOverrideEndingSoon => {
@@ -1923,6 +1994,21 @@ mod credit_inputs_tests {
             EventType::SubscriptionTrialEndingSoon,
             false,
             "trial notice",
+        ),
+        (
+            EventType::WorkflowRunStarted,
+            false,
+            "a notice: the run's actions carry their own events",
+        ),
+        (
+            EventType::WorkflowRunSucceeded,
+            false,
+            "a notice: the run's actions carry their own events",
+        ),
+        (
+            EventType::WorkflowRunFailed,
+            false,
+            "a notice: the run's actions carry their own events",
         ),
     ];
 

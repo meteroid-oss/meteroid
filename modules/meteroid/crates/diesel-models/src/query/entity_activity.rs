@@ -4,7 +4,9 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 use common_domain::actor::ActorType;
-use common_domain::ids::{CustomerId, EntityActivityId, OAuthAppId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerId, EntityActivityId, OAuthAppId, SubscriptionId, TenantId, WorkflowId,
+};
 use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -237,5 +239,27 @@ pub async fn oauth_app_names(
         .get_results(conn)
         .await
         .attach("Error while fetching oauth app names by ids")
+        .into_db_result()
+}
+
+/// The names of a tenant's workflows, for the activity of the changes they made.
+pub async fn workflow_names(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    ids: &[WorkflowId],
+) -> DbResult<Vec<(WorkflowId, String)>> {
+    use crate::schema::workflow::dsl as w;
+    use diesel_async::RunQueryDsl;
+
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    w::workflow
+        .filter(w::tenant_id.eq(tenant_id))
+        .filter(w::id.eq_any(ids))
+        .select((w::id, w::name))
+        .get_results(conn)
+        .await
+        .attach("Error while fetching workflow names by ids")
         .into_db_result()
 }

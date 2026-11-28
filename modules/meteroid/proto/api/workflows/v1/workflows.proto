@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package meteroid.api.workflows.v1;
+
+import "api/workflows/v1/models.proto";
+
+// Workflows (ADR-0016). Saving a draft is free; activating validates it into a numbered version.
+service WorkflowsService {
+  rpc GetWorkflowCatalog(GetWorkflowCatalogRequest) returns (GetWorkflowCatalogResponse);
+  rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse);
+  rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse);
+  rpc CreateWorkflow(CreateWorkflowRequest) returns (CreateWorkflowResponse);
+  rpc UpdateWorkflow(UpdateWorkflowRequest) returns (UpdateWorkflowResponse);
+  rpc CheckWorkflowDraft(CheckWorkflowDraftRequest) returns (CheckWorkflowDraftResponse);
+  // Runs the draft once without changing anything: reads are made, writes, emails and HTTP calls
+  // only described, waits skipped.
+  rpc TestWorkflow(TestWorkflowRequest) returns (TestWorkflowResponse);
+  rpc ActivateWorkflow(ActivateWorkflowRequest) returns (ActivateWorkflowResponse);
+  // New runs stop; runs already waiting carry on unless cancelled.
+  rpc DeactivateWorkflow(DeactivateWorkflowRequest) returns (DeactivateWorkflowResponse);
+  rpc ArchiveWorkflow(ArchiveWorkflowRequest) returns (ArchiveWorkflowResponse);
+  rpc InvokeWorkflow(InvokeWorkflowRequest) returns (InvokeWorkflowResponse);
+  rpc ListWorkflowRuns(ListWorkflowRunsRequest) returns (ListWorkflowRunsResponse);
+  rpc GetWorkflowRun(GetWorkflowRunRequest) returns (GetWorkflowRunResponse);
+  rpc CancelWorkflowRun(CancelWorkflowRunRequest) returns (CancelWorkflowRunResponse);
+  rpc RetryWorkflowRun(RetryWorkflowRunRequest) returns (RetryWorkflowRunResponse);
+  rpc ListWorkflowEventSamples(ListWorkflowEventSamplesRequest) returns (ListWorkflowEventSamplesResponse);
+  rpc GetWorkflowRunStats(GetWorkflowRunStatsRequest) returns (GetWorkflowRunStatsResponse);
+}
+
+message GetWorkflowCatalogRequest {}
+message GetWorkflowCatalogResponse {
+  repeated CatalogAction actions = 1;
+  // The event types a workflow can start on.
+  repeated string events = 2;
+  repeated CatalogEvent event_docs = 3;
+}
+
+message TestWorkflowRequest {
+  string id = 1;
+  // The workflow's draft when left out.
+  optional string draft_json = 2;
+  // The trigger to test with, as a run's `trigger`; else built from `resource_id`, else the last
+  // run's.
+  optional string trigger_json = 3;
+  // For an event about a customer, subscription, invoice or credit note: that resource, read now.
+  optional string resource_id = 4;
+  optional string inputs_json = 5;
+}
+
+message TestWorkflowResponse {
+  WorkflowRunStatus status = 1;
+  optional string error_code = 2;
+  optional string error_message = 3;
+  optional string failed_node_id = 4;
+  repeated WorkflowStepRun steps = 5;
+  string trigger_json = 6;
+  // Whether the event trigger's condition holds for this trigger.
+  bool trigger_matched = 7;
+  repeated ValidationIssue issues = 8;
+}
+
+message ListWorkflowsRequest {}
+message ListWorkflowsResponse {
+  repeated Workflow workflows = 1;
+}
+
+message GetWorkflowRequest {
+  string id = 1;
+}
+message GetWorkflowResponse {
+  Workflow workflow = 1;
+  repeated WorkflowVersion versions = 2;
+  repeated ValidationIssue issues = 3;
+}
+
+message CreateWorkflowRequest {
+  string name = 1;
+  optional string description = 2;
+  string draft_json = 3;
+}
+message CreateWorkflowResponse {
+  Workflow workflow = 1;
+  repeated ValidationIssue issues = 2;
+}
+
+message UpdateWorkflowRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string draft_json = 4;
+}
+message UpdateWorkflowResponse {
+  Workflow workflow = 1;
+  repeated ValidationIssue issues = 2;
+}
+
+message CheckWorkflowDraftRequest {
+  string draft_json = 1;
+}
+message CheckWorkflowDraftResponse {
+  repeated ValidationIssue issues = 1;
+}
+
+message ActivateWorkflowRequest {
+  string id = 1;
+  optional string note = 2;
+}
+message ActivateWorkflowResponse {
+  Workflow workflow = 1;
+}
+
+message DeactivateWorkflowRequest {
+  string id = 1;
+}
+message DeactivateWorkflowResponse {
+  Workflow workflow = 1;
+}
+
+message ArchiveWorkflowRequest {
+  string id = 1;
+}
+message ArchiveWorkflowResponse {}
+
+message InvokeWorkflowRequest {
+  string id = 1;
+  string inputs_json = 2;
+  optional string idempotency_key = 3;
+}
+message InvokeWorkflowResponse {
+  WorkflowRun run = 1;
+}
+
+message ListWorkflowRunsRequest {
+  optional string workflow_id = 1;
+  optional WorkflowRunStatus status = 2;
+  // The id of the last run of the previous page.
+  optional string after = 3;
+  optional uint32 limit = 4;
+}
+message ListWorkflowRunsResponse {
+  repeated WorkflowRun runs = 1;
+  optional string next_cursor = 2;
+}
+
+message GetWorkflowRunRequest {
+  string id = 1;
+}
+message GetWorkflowRunResponse {
+  WorkflowRun run = 1;
+  repeated WorkflowStepRun steps = 2;
+  // Only the first steps are answered for a very long run.
+  bool steps_truncated = 3;
+}
+
+message CancelWorkflowRunRequest {
+  string id = 1;
+}
+message CancelWorkflowRunResponse {
+  WorkflowRun run = 1;
+  repeated WorkflowStepRun steps = 2;
+}
+
+// Moves a run waiting to retry a step to retry it now.
+message RetryWorkflowRunRequest {
+  string id = 1;
+}
+message RetryWorkflowRunResponse {
+  WorkflowRun run = 1;
+}
+
+message ListWorkflowEventSamplesRequest {
+  string event_type = 1;
+  // With a draft, each sample says whether its trigger would have started a run.
+  optional string draft_json = 2;
+  optional uint32 limit = 3;
+}
+message WorkflowEventSample {
+  string id = 1;
+  string created_at = 2;
+  // The event as a run's `trigger` reads it.
+  string envelope_json = 3;
+  optional bool matches = 4;
+}
+message ListWorkflowEventSamplesResponse {
+  repeated WorkflowEventSample samples = 1;
+}
+
+// Runs by workflow and UTC day, oldest day first; days without a run are left out.
+message GetWorkflowRunStatsRequest {
+  // 1 to 31; 7 by default.
+  optional uint32 days = 1;
+}
+message WorkflowRunDay {
+  // YYYY-MM-DD.
+  string day = 1;
+  uint32 succeeded = 2;
+  uint32 failed = 3;
+  // Still going, waiting or cancelled.
+  uint32 other = 4;
+}
+message WorkflowRunStats {
+  string workflow_id = 1;
+  repeated WorkflowRunDay days = 2;
+}
+message GetWorkflowRunStatsResponse {
+  repeated WorkflowRunStats workflows = 1;
+}

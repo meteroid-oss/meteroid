@@ -109,6 +109,8 @@ function actorLabel(entry: ActivityEntry): string {
       return entry.actorId ?? 'Recipient'
     case ActorType.OAUTH_APP:
       return entry.actorName ?? 'OAuth app'
+    case ActorType.WORKFLOW:
+      return 'Workflow'
     default:
       return 'Unknown'
   }

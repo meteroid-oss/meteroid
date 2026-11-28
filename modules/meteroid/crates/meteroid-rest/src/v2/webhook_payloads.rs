@@ -43,6 +43,7 @@ use http::StatusCode;
 use meteroid_app::rest::denomination::{Denomination, Denominations};
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_store::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
+use meteroid_store::domain::workflow_events::WorkflowRunTransition;
 use meteroid_store::domain::{renewals, retention_events};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::CustomerCreditWalletsInterface;
@@ -583,6 +584,26 @@ pub async fn data(reader: &impl Reader, event: &OutboxEvent) -> Result<Value, Pr
                 free: e.free,
             })
         }
+        OutboxEvent::WorkflowRunStarted(e)
+        | OutboxEvent::WorkflowRunSucceeded(e)
+        | OutboxEvent::WorkflowRunFailed(e) => to_value(&WorkflowRunEventData {
+            run: WorkflowRunSummary {
+                id: e.run_id,
+                workflow: e.workflow_id,
+                status: match e.transition {
+                    WorkflowRunTransition::Started => WorkflowRunState::Running,
+                    WorkflowRunTransition::Succeeded => WorkflowRunState::Succeeded,
+                    WorkflowRunTransition::Failed => WorkflowRunState::Failed,
+                },
+                error: e.error_code.clone().map(|code| WorkflowRunError {
+                    code,
+                    message: e.error_message.clone().unwrap_or_default(),
+                    step: e.failed_step.clone(),
+                }),
+                started_at: e.started_at.into(),
+                finished_at: e.finished_at.map(Into::into),
+            },
+        }),
         OutboxEvent::BudgetThresholdReached(e) | OutboxEvent::BudgetExceeded(e) => {
             let v1 = WebhookOutBudgetAlertEventData::from((**e).clone());
             let refs = wallet_refs(reader, tenant_id, v1.customer_id, &v1.credit_unit, |ids| {
@@ -862,6 +883,7 @@ pub enum EventActorType {
     System,
     ApiKey,
     OauthApp,
+    Workflow,
 }
 
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
@@ -879,6 +901,15 @@ impl From<WebhookOutActor> for EventActor {
             actor_type: match actor.actor_type {
                 WebhookOutActorType::User => EventActorType::User,
                 WebhookOutActorType::Customer => EventActorType::Customer,
+                WebhookOutActorType::System
+                    if actor.id.as_deref().is_some_and(|id| {
+                        id.starts_with(
+                            <common_domain::ids::WorkflowId as common_domain::ids::BaseId>::PREFIX,
+                        )
+                    }) =>
+                {
+                    EventActorType::Workflow
+                }
                 WebhookOutActorType::System => EventActorType::System,
                 WebhookOutActorType::ApiKey => EventActorType::ApiKey,
                 WebhookOutActorType::OauthApp => EventActorType::OauthApp,
@@ -1398,12 +1429,84 @@ pub struct BudgetAlertEventData {
     pub exact: bool,
 }
 
+/// A workflow run as its notification reads it: the run starting, or how it ended.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct WorkflowRunEventData {
+    pub run: WorkflowRunSummary,
+}
+
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct WorkflowRunSummary {
+    #[schema(value_type = String)]
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub id: common_domain::ids::WorkflowRunId,
+    /// The workflow's id.
+    #[schema(value_type = String)]
+    #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
+    pub workflow: common_domain::ids::WorkflowId,
+    pub status: WorkflowRunState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<WorkflowRunError>,
+    pub started_at: ApiDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<ApiDateTime>,
+}
+
+#[derive(Serialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowRunState {
+    Running,
+    Succeeded,
+    Failed,
+}
+
+/// Why a run failed, and at which step.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct WorkflowRunError {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+}
+
+/// What the change behind an `*.updated` event replaced, beside its `data`.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct PreviousAttributes {
+    /// The previous value of each custom property the change set, replaced or removed (`null`
+    /// where it was unset).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub custom_properties: Option<serde_json::Map<String, Value>>,
+}
+
+pub fn previous_attributes(event: &OutboxEvent) -> Option<PreviousAttributes> {
+    let custom_properties = match event {
+        OutboxEvent::CustomerUpdated(e) => e.previous_custom_properties.clone(),
+        OutboxEvent::SubscriptionUpdated(e) => e.previous_custom_properties.clone(),
+        _ => None,
+    };
+    custom_properties.map(|custom_properties| PreviousAttributes {
+        custom_properties: Some(custom_properties),
+    })
+}
+
+/// `envelope` with the event's `previous_attributes`, when its change replaced any.
+pub fn with_previous_attributes(mut envelope: Value, event: &OutboxEvent) -> Value {
+    if let (Some(previous), Some(fields)) = (previous_attributes(event), envelope.as_object_mut()) {
+        fields.insert(
+            "previous_attributes".to_owned(),
+            serde_json::to_value(previous).unwrap_or(Value::Null),
+        );
+    }
+    envelope
+}
+
 /// The schema of an event type's `data`: a resource's own for an event about one, else the
 /// notification's.
 pub fn data_schema(event: WebhookOutEventTypeEnum) -> &'static str {
     use WebhookOutEventTypeEnum as E;
     match event {
-        E::CustomerCreated => "Customer",
+        E::CustomerCreated | E::CustomerUpdated => "Customer",
         E::SubscriptionCreated
         | E::SubscriptionUpdated
         | E::SubscriptionCancelled
@@ -1450,6 +1553,9 @@ pub fn data_schema(event: WebhookOutEventTypeEnum) -> &'static str {
         E::SubscriptionRenewalUpcoming => "RenewalUpcomingEventData",
         E::EntitlementOverrideEndingSoon | E::EntitlementOverrideEnded => "OverrideEndingEventData",
         E::SubscriptionTrialEndingSoon => "TrialEndingEventData",
+        E::WorkflowRunStarted | E::WorkflowRunSucceeded | E::WorkflowRunFailed => {
+            "WorkflowRunEventData"
+        }
     }
 }
 
@@ -1498,6 +1604,7 @@ pub fn envelope_schema(event: WebhookOutEventTypeEnum) -> String {
 /// webhooks it publishes (`document::attach_webhooks`).
 #[derive(OpenApi)]
 #[openapi(components(schemas(
+    PreviousAttributes,
     DeletedInvoice,
     PaymentEventData,
     QuoteEventData,
@@ -1518,6 +1625,7 @@ pub fn envelope_schema(event: WebhookOutEventTypeEnum) -> String {
     CheckoutPaymentKeptAsCreditEventData,
     RetentionSessionCompletedEventData,
     RenewalUpcomingEventData,
+    WorkflowRunEventData,
     OverrideEndingEventData,
     TrialEndingEventData,
 )))]
@@ -1526,8 +1634,29 @@ pub struct WebhookPayloadsDoc;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_domain::ids::EventId;
+    use common_domain::ids::{BaseId, EventId};
     use strum::IntoEnumIterator;
+
+    #[test]
+    fn a_workflow_is_system_on_v1_and_workflow_on_v2() {
+        let workflow = common_domain::ids::WorkflowId::new().as_base62();
+        let v1 = WebhookOutActor {
+            actor_type: WebhookOutActorType::System,
+            id: Some(workflow.clone()),
+        };
+        assert_eq!(
+            EventActor::from(v1),
+            EventActor {
+                actor_type: EventActorType::Workflow,
+                id: Some(workflow),
+            }
+        );
+        let system = EventActor::from(WebhookOutActor {
+            actor_type: WebhookOutActorType::System,
+            id: None,
+        });
+        assert_eq!(system.actor_type, EventActorType::System);
+    }
 
     #[test]
     fn every_event_type_names_its_schemas() {

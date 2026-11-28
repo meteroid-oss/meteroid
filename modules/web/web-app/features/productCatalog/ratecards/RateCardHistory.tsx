@@ -187,6 +187,8 @@ function actorName(change: RateCardChange): string {
       return 'API token'
     case ActorType.OAUTH_APP:
       return 'OAuth app'
+    case ActorType.WORKFLOW:
+      return 'Workflow'
     default:
       return 'User'
   }

@@ -927,7 +927,7 @@ pub fn attach_webhooks(v2: &mut Map<String, Value>, v1: &Map<String, Value>) {
             continue;
         };
         let data = data_schema(event);
-        let mut stack = vec![data.to_owned()];
+        let mut stack = schema_refs(&envelope_of(data));
         while let Some(needed) = stack.pop() {
             if schemas.contains_key(&needed) {
                 continue;
@@ -992,7 +992,7 @@ pub fn attach_webhooks(v2: &mut Map<String, Value>, v1: &Map<String, Value>) {
 
 /// An event's payload in v2's shape, `data` of the schema `data`.
 fn envelope_of(data: &str) -> Value {
-    json!({
+    let mut envelope = json!({
         "type": "object",
         "description": format!(
             "An event's payload in API v2's shape, sent to an endpoint whose `api_version` is \
@@ -1020,7 +1020,15 @@ fn envelope_of(data: &str) -> Value {
             },
             "data": {"$ref": schema_ref(data)}
         }
-    })
+    });
+    if matches!(data, "Customer" | "Subscription") {
+        envelope["properties"]["previous_attributes"] = json!({
+            "$ref": schema_ref("PreviousAttributes"),
+            "description": "On `customer.updated` and `subscription.updated`: what the change \
+                replaced. Absent when it replaced none of the attributes listed there."
+        });
+    }
+    envelope
 }
 
 const SCHEMA_REF: &str = "#/components/schemas/";

@@ -87,6 +87,7 @@ types:
     - meteroid.api.taxes.v1.TaxesService
     - meteroid.api.taxreports.v1.TaxReportsService
     - meteroid.api.webhooks.out.v1.WebhooksService
+    - meteroid.api.workflows.v1.WorkflowsService
     - meteroid.portal.checkout.v1.PortalCheckoutService
     - meteroid.portal.quotes.v1.PortalQuoteService
     - meteroid.portal.quotes.v1.PortalQuoteSignatureCodesService

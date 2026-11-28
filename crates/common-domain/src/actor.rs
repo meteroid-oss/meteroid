@@ -1,4 +1,4 @@
-use crate::ids::{ApiTokenId, BaseId, CustomerId, OAuthAppId, UserId};
+use crate::ids::{ApiTokenId, BaseId, CustomerId, OAuthAppId, UserId, WorkflowId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -11,6 +11,7 @@ pub enum Actor {
     Customer { id: CustomerId },
     QuoteRecipient { email: String },
     OAuthApp { id: OAuthAppId },
+    Workflow { id: WorkflowId },
 }
 
 /// Matches the Postgres `ActorTypeEnum` values.
@@ -23,6 +24,7 @@ pub enum ActorType {
     Customer,
     QuoteRecipient,
     OAuthApp,
+    Workflow,
 }
 
 impl Actor {
@@ -34,6 +36,7 @@ impl Actor {
             Actor::Customer { .. } => ActorType::Customer,
             Actor::QuoteRecipient { .. } => ActorType::QuoteRecipient,
             Actor::OAuthApp { .. } => ActorType::OAuthApp,
+            Actor::Workflow { .. } => ActorType::Workflow,
         }
     }
 
@@ -46,7 +49,8 @@ impl Actor {
             | Actor::User { .. }
             | Actor::ApiToken { .. }
             | Actor::Customer { .. }
-            | Actor::OAuthApp { .. } => None,
+            | Actor::OAuthApp { .. }
+            | Actor::Workflow { .. } => None,
         }
     }
 
@@ -72,6 +76,9 @@ impl Actor {
             ActorType::OAuthApp => uuid
                 .map(|id| Actor::OAuthApp { id: id.into() })
                 .unwrap_or(Actor::System),
+            ActorType::Workflow => uuid
+                .map(|id| Actor::Workflow { id: id.into() })
+                .unwrap_or(Actor::System),
             ActorType::QuoteRecipient => alias
                 .map(|email| Actor::QuoteRecipient { email })
                 .unwrap_or(Actor::System),
@@ -86,6 +93,7 @@ impl Actor {
             Actor::ApiToken { id } => Some(id.as_uuid()),
             Actor::Customer { id } => Some(id.as_uuid()),
             Actor::OAuthApp { id } => Some(id.as_uuid()),
+            Actor::Workflow { id } => Some(id.as_uuid()),
         }
     }
 }

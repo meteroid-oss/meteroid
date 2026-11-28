@@ -21,8 +21,8 @@ use common_domain::ids::{
 use common_domain::ids::{
     BillableMetricId, BudgetId, CreditGrantId, CreditNoteId, CustomerId, EventId, FeatureId,
     InvoiceId, LedgerEntryId, PaymentTransactionId, PlanId, ProductFamilyId, ProductId, QuoteId,
-    ResourceId, RetentionSessionId, SubscriptionId, string_serde, string_serde_opt,
-    string_serde_vec,
+    ResourceId, RetentionSessionId, SubscriptionId, WorkflowId, WorkflowRunId, string_serde,
+    string_serde_opt, string_serde_vec,
 };
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_rest_common::model::BillingPeriodEnum;
@@ -519,7 +519,8 @@ pub enum WebhookOutActorType {
     User,
     /// The customer, from the customer portal.
     Customer,
-    /// Meteroid on its own, or one of your API keys where the change does not name it.
+    /// Meteroid on its own, one of your API keys where the change does not name it, or one of
+    /// your workflows, then named by `id`.
     System,
     /// One of your API keys.
     ApiKey,
@@ -557,6 +558,10 @@ impl WebhookOutActor {
             Some(("oauth_app", id)) => uuid::Uuid::parse_str(id).ok().map(|id| Self {
                 actor_type: WebhookOutActorType::OauthApp,
                 id: Some(common_domain::ids::OAuthAppId::from(id).as_base62()),
+            }),
+            Some(("workflow", id)) => uuid::Uuid::parse_str(id).ok().map(|id| Self {
+                actor_type: WebhookOutActorType::System,
+                id: Some(common_domain::ids::WorkflowId::from(id).as_base62()),
             }),
             None if actor == "system" => Some(Self::system()),
             _ => None,
@@ -1385,6 +1390,45 @@ pub struct WebhookOutRetentionSessionEventData {
     pub completed_at: ApiDateTime,
 }
 
+/// A workflow run starting or ending.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = WorkflowRunEventData)]
+pub struct WebhookOutWorkflowRunEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub run_id: WorkflowRunId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub workflow_id: WorkflowId,
+    /// STARTED, SUCCEEDED or FAILED.
+    pub status: String,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    /// The id of the step the run failed at.
+    pub failed_step: Option<String>,
+    pub started_at: ApiDateTime,
+    pub finished_at: Option<ApiDateTime>,
+}
+
+impl From<meteroid_store::domain::workflow_events::WorkflowRunEvent>
+    for WebhookOutWorkflowRunEventData
+{
+    fn from(event: meteroid_store::domain::workflow_events::WorkflowRunEvent) -> Self {
+        Self {
+            run_id: event.run_id,
+            workflow_id: event.workflow_id,
+            status: serde_json::to_value(event.transition)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default(),
+            error_code: event.error_code,
+            error_message: event.error_message,
+            failed_step: event.failed_step,
+            started_at: event.started_at.into(),
+            finished_at: event.finished_at.map(Into::into),
+        }
+    }
+}
+
 impl From<RetentionSessionEvent> for WebhookOutRetentionSessionEventData {
     fn from(event: RetentionSessionEvent) -> Self {
         Self {
@@ -1657,6 +1701,7 @@ wallet_webhook_event!(
         as RetentionSessionWebhookEvent,
     WebhookOutRenewalUpcomingEvent(WebhookOutRenewalUpcomingEventData)
         as RenewalUpcomingWebhookEvent,
+    WebhookOutWorkflowRunEvent(WebhookOutWorkflowRunEventData) as WorkflowRunWebhookEvent,
     WebhookOutOverrideEndingEvent(WebhookOutOverrideEndingEventData) as OverrideEndingWebhookEvent,
     WebhookOutTrialEndingEvent(WebhookOutTrialEndingEventData) as TrialEndingWebhookEvent,
 );
@@ -1894,6 +1939,9 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "customer.created")]
     #[serde(rename = "customer.created")]
     CustomerCreated,
+    #[strum(serialize = "customer.updated")]
+    #[serde(rename = "customer.updated")]
+    CustomerUpdated,
     #[strum(serialize = "subscription.created")]
     #[serde(rename = "subscription.created")]
     SubscriptionCreated,
@@ -2074,6 +2122,15 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "subscription.trial_ending_soon")]
     #[serde(rename = "subscription.trial_ending_soon")]
     SubscriptionTrialEndingSoon,
+    #[strum(serialize = "workflow_run.started")]
+    #[serde(rename = "workflow_run.started")]
+    WorkflowRunStarted,
+    #[strum(serialize = "workflow_run.succeeded")]
+    #[serde(rename = "workflow_run.succeeded")]
+    WorkflowRunSucceeded,
+    #[strum(serialize = "workflow_run.failed")]
+    #[serde(rename = "workflow_run.failed")]
+    WorkflowRunFailed,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -2121,6 +2178,9 @@ pub enum WebhookOutEventGroupEnum {
     /// A customer finishing the portal cancel flow: saved by an offer, or cancelled.
     #[strum(serialize = "retention")]
     Retention,
+    /// A workflow run starting, succeeding or failing.
+    #[strum(serialize = "workflow_run")]
+    WorkflowRun,
 }
 
 impl WebhookOutEventGroupEnum {
@@ -2153,6 +2213,7 @@ impl WebhookOutEventGroupEnum {
             WebhookOutEventGroupEnum::Budget => "BudgetAlertWebhookEvent",
             WebhookOutEventGroupEnum::Checkout => "CheckoutPaymentKeptAsCreditEvent",
             WebhookOutEventGroupEnum::Retention => "RetentionSessionWebhookEvent",
+            WebhookOutEventGroupEnum::WorkflowRun => "WorkflowRunWebhookEvent",
         }
     }
 }
@@ -2177,12 +2238,16 @@ impl WebhookOutEventTypeEnum {
                 | WebhookOutEventTypeEnum::BudgetThresholdReached
                 | WebhookOutEventTypeEnum::BudgetExceeded
                 | WebhookOutEventTypeEnum::RetentionSessionCompleted
+                | WebhookOutEventTypeEnum::WorkflowRunStarted
+                | WebhookOutEventTypeEnum::WorkflowRunSucceeded
+                | WebhookOutEventTypeEnum::WorkflowRunFailed
         )
     }
 
     pub fn group(&self) -> WebhookOutEventGroupEnum {
         match self {
             WebhookOutEventTypeEnum::CustomerCreated => WebhookOutEventGroupEnum::Customer,
+            WebhookOutEventTypeEnum::CustomerUpdated => WebhookOutEventGroupEnum::Customer,
             WebhookOutEventTypeEnum::SubscriptionCreated => WebhookOutEventGroupEnum::Subscription,
             WebhookOutEventTypeEnum::SubscriptionUpdated => WebhookOutEventGroupEnum::Subscription,
             WebhookOutEventTypeEnum::SubscriptionCancelled => {
@@ -2259,6 +2324,9 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::RetentionSessionCompleted => {
                 WebhookOutEventGroupEnum::Retention
             }
+            WebhookOutEventTypeEnum::WorkflowRunStarted
+            | WebhookOutEventTypeEnum::WorkflowRunSucceeded
+            | WebhookOutEventTypeEnum::WorkflowRunFailed => WebhookOutEventGroupEnum::WorkflowRun,
             WebhookOutEventTypeEnum::CheckoutPaymentKeptAsCredit => {
                 WebhookOutEventGroupEnum::Checkout
             }
@@ -2291,6 +2359,10 @@ impl WebhookOutEventTypeEnum {
     pub fn description(&self) -> String {
         match self {
             WebhookOutEventTypeEnum::CustomerCreated => "A new customer was created".to_string(),
+            WebhookOutEventTypeEnum::CustomerUpdated => {
+                "A customer was updated (details, addresses, owner, custom properties, ...)"
+                    .to_string()
+            }
             WebhookOutEventTypeEnum::SubscriptionCreated => {
                 "A new subscription was created".to_string()
             }
@@ -2452,6 +2524,13 @@ impl WebhookOutEventTypeEnum {
                 "A self-serve checkout was paid but its subscription could not be created; the payment was kept as the customer's credit and the checkout cancelled"
                     .to_string()
             }
+            WebhookOutEventTypeEnum::WorkflowRunStarted => "A workflow run started".to_string(),
+            WebhookOutEventTypeEnum::WorkflowRunSucceeded => {
+                "A workflow run finished every step it took".to_string()
+            }
+            WebhookOutEventTypeEnum::WorkflowRunFailed => {
+                "A workflow run stopped at a step that failed".to_string()
+            }
             WebhookOutEventTypeEnum::RetentionSessionCompleted => {
                 "A customer finished the portal cancel flow: kept by an offer, asking to be contacted, or cancelled"
                     .to_string()
@@ -2609,5 +2688,61 @@ mod wallet_payload_tests {
             consent_actor("system".to_owned()),
             serde_json::json!({ "type": "SYSTEM" })
         );
+    }
+}
+
+/// Whether a saved payment is a collection that failed: what `payment.failed` announces.
+pub fn is_failed_collection(
+    event: &meteroid_store::domain::outbox_event::PaymentTransactionEvent,
+) -> bool {
+    event.payment_type.is_collection()
+        && event.status == meteroid_store::domain::PaymentStatusEnum::Failed
+        && event.refunded_at.is_none()
+}
+
+/// The webhook an outbox event is announced as, `None` when it is announced as none. Its name
+/// can differ from the outbox routing key (`add_on.*` is `addon.*`).
+pub fn webhook_event_type(
+    event: &meteroid_store::domain::outbox_event::OutboxEvent,
+) -> Option<WebhookOutEventTypeEnum> {
+    use meteroid_store::domain::outbox_event::OutboxEvent;
+    use std::str::FromStr;
+    match event {
+        OutboxEvent::PaymentTransactionSaved(e) => {
+            is_failed_collection(e).then_some(WebhookOutEventTypeEnum::PaymentFailed)
+        }
+        _ => WebhookOutEventTypeEnum::from_str(&webhook_name(event.routing_key())).ok(),
+    }
+}
+
+fn webhook_name(routing_key: &str) -> String {
+    for (outbox, webhook) in [("add_on.", "addon."), ("billable_metric.", "metric.")] {
+        if let Some(rest) = routing_key.strip_prefix(outbox) {
+            return format!("{webhook}{rest}");
+        }
+    }
+    routing_key.to_owned()
+}
+
+#[cfg(test)]
+mod webhook_event_type_tests {
+    use super::*;
+    use meteroid_store::domain::outbox_event::EventType;
+    use std::str::FromStr;
+    use strum::IntoEnumIterator;
+
+    #[test]
+    fn every_outbox_event_type_is_named_as_a_webhook() {
+        let unannounced = ["payment.transaction_received"];
+        for event_type in EventType::iter() {
+            let key = event_type.routing_key();
+            if unannounced.contains(&key) {
+                continue;
+            }
+            assert!(
+                WebhookOutEventTypeEnum::from_str(&webhook_name(key)).is_ok(),
+                "{event_type:?} ({key}) has no webhook of its name"
+            );
+        }
     }
 }

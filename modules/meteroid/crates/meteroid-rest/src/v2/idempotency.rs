@@ -242,12 +242,17 @@ pub async fn idempotency(
             // A task of its own: a client gone mid-request cancels neither the write nor `settle`.
             let task = {
                 let (state, auth, identity) = (state.clone(), auth.clone(), identity.clone());
-                tokio::spawn(async move {
-                    let response = next
-                        .run(Request::from_parts(parts, Body::from(bytes)))
-                        .await;
-                    settle(&state, &auth, &identity, response).await
-                })
+                // The task inherits the workflow runs that caused the request (ADR-0016 §6).
+                let origin = meteroid_store::domain::workflow_origin::current();
+                tokio::spawn(meteroid_store::domain::workflow_origin::scope(
+                    origin,
+                    async move {
+                        let response = next
+                            .run(Request::from_parts(parts, Body::from(bytes)))
+                            .await;
+                        settle(&state, &auth, &identity, response).await
+                    },
+                ))
             };
             match task.await {
                 Ok(response) => response,

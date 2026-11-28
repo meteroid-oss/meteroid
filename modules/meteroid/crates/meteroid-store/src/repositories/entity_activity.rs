@@ -8,13 +8,13 @@ use crate::domain::customer_emails::EmailContext;
 use common_domain::actor::ActorType;
 use common_domain::ids::{
     ApiTokenId, BaseId, CustomerId, EntityActivityId, InvoicingEntityId, OAuthAppId,
-    StoredDocumentId, SubscriptionId, TenantId, UserId,
+    StoredDocumentId, SubscriptionId, TenantId, UserId, WorkflowId,
 };
 use diesel_models::api_tokens::ApiTokenRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::entity_activity::EntityActivityRow;
-use diesel_models::query::entity_activity::oauth_app_names;
 pub use diesel_models::query::entity_activity::{ActivityCursor, EntityActivityFilter};
+use diesel_models::query::entity_activity::{oauth_app_names, workflow_names};
 use diesel_models::sent_email::{SentEmailRow, SentEmailRowNew};
 use diesel_models::users::UserRow;
 use itertools::Itertools;
@@ -247,6 +247,7 @@ impl EntityActivityInterface for Store {
         let mut token_ids: HashSet<ApiTokenId> = HashSet::new();
         let mut customer_ids: HashSet<CustomerId> = HashSet::new();
         let mut oauth_app_ids: HashSet<OAuthAppId> = HashSet::new();
+        let mut workflow_ids: HashSet<WorkflowId> = HashSet::new();
         for (actor_type, uuid) in actors {
             match actor_type {
                 ActorType::User => {
@@ -260,6 +261,9 @@ impl EntityActivityInterface for Store {
                 }
                 ActorType::OAuthApp => {
                     oauth_app_ids.insert(OAuthAppId::from(*uuid));
+                }
+                ActorType::Workflow => {
+                    workflow_ids.insert(WorkflowId::from(*uuid));
                 }
                 ActorType::System | ActorType::QuoteRecipient => {}
             }
@@ -305,6 +309,15 @@ impl EntityActivityInterface for Store {
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             for (id, name) in rows {
                 out.insert((ActorType::OAuthApp, id.as_uuid()), name);
+            }
+        }
+        if !workflow_ids.is_empty() {
+            let ids: Vec<WorkflowId> = workflow_ids.into_iter().collect();
+            let rows = workflow_names(&mut conn, tenant_id, &ids)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            for (id, name) in rows {
+                out.insert((ActorType::Workflow, id.as_uuid()), name);
             }
         }
         Ok(out)

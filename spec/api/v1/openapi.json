@@ -20463,6 +20463,7 @@
         "enum": [
           "metric.created",
           "customer.created",
+          "customer.updated",
           "subscription.created",
           "subscription.updated",
           "subscription.cancelled",
@@ -30707,6 +30708,48 @@
               "example": {
                 "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
                 "type": "customer.created",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Acme Corporation",
+                "alias": "ACME",
+                "billing_email": "billing@acme.example",
+                "invoicing_emails": [
+                  "invoices@acme.example"
+                ],
+                "phone": "+1-555-0123",
+                "currency": "USD",
+                "custom_properties": {
+                  "account_tier": "enterprise"
+                },
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "customer.updated": {
+      "post": {
+        "summary": "customer.updated webhook",
+        "description": "A customer was updated (details, addresses, owner, custom properties, ...)",
+        "operationId": "webhook_customer_updated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "customer.updated",
                 "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
                 "name": "Acme Corporation",
                 "alias": "ACME",

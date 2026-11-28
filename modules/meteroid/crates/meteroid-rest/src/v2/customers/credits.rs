@@ -542,7 +542,7 @@ fn wallet_code(raw: &str, customer: &Customer) -> Result<String, Problem> {
 fn actor_user(auth: &AuthorizedAsTenant) -> Option<uuid::Uuid> {
     match auth.actor {
         TenantActor::User { .. } => Some(auth.actor.id()),
-        TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) => None,
+        TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) | TenantActor::Workflow(_) => None,
     }
 }
 

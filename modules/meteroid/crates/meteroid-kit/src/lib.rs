@@ -252,6 +252,7 @@ pub struct WorkerContext {
     /// The metering reads that price usage not invoiced yet.
     pub pending_usage: Arc<dyn PendingUsageSource>,
     pub egress: Egress,
+    pub object_store: Arc<dyn ObjectStoreService>,
 }
 
 pub trait WorkerModule: Send + Sync {

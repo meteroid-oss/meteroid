@@ -258,6 +258,7 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
         WebhookOutRenewalUpcomingEvent,
         WebhookOutOverrideEndingEvent,
         WebhookOutTrialEndingEvent,
+        crate::webhooks::out_model::WebhookOutWorkflowRunEvent,
       )
     ),
     tags(
@@ -1132,6 +1133,24 @@ impl Modify for WebhooksAddon {
                             offer_title: Some("Stay for 30% off your next 3 months".to_string()),
                             effective_date: Some(Default::default()),
                             completed_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    })
+                    .expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::WorkflowRun => {
+                    serde_json::to_value(crate::webhooks::out_model::WebhookOutWorkflowRunEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: crate::webhooks::out_model::WebhookOutWorkflowRunEventData {
+                            run_id: Default::default(),
+                            workflow_id: Default::default(),
+                            status: "SUCCEEDED".to_string(),
+                            error_code: None,
+                            error_message: None,
+                            failed_step: None,
+                            started_at: Default::default(),
+                            finished_at: Some(Default::default()),
                         },
                         timestamp: Default::default(),
                     })

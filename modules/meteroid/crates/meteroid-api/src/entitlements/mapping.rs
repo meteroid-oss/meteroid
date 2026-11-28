@@ -226,6 +226,7 @@ pub fn actor_to_proto(actor: Actor) -> proto::Actor {
         Actor::ApiToken { id } => ("API_KEY", Some(id.as_proto())),
         Actor::Customer { id } => ("CUSTOMER", Some(id.as_proto())),
         Actor::OAuthApp { id } => ("OAUTH_APP", Some(id.as_proto())),
+        Actor::Workflow { id } => ("WORKFLOW", Some(id.as_proto())),
         Actor::QuoteRecipient { email } => ("QUOTE_RECIPIENT", Some(email)),
     };
     proto::Actor {

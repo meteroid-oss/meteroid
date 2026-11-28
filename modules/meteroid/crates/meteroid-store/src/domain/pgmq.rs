@@ -31,6 +31,7 @@ pub enum PgmqQueue {
     WebhookIn,
     VatValidation,
     CreditRecompute,
+    WorkflowEngine,
 }
 
 /// Who reads a queue. Messages bound to a queue nobody reads pile up for good, so the workers
@@ -60,7 +61,9 @@ impl PgmqQueue {
             | PgmqQueue::WebhookIn
             | PgmqQueue::VatValidation => Some(QueueConsumer::Core),
             PgmqQueue::HubspotSync | PgmqQueue::PennylaneSync => Some(QueueConsumer::Integration),
-            PgmqQueue::DogfoodingSync | PgmqQueue::CreditRecompute => Some(QueueConsumer::Module),
+            PgmqQueue::DogfoodingSync | PgmqQueue::CreditRecompute | PgmqQueue::WorkflowEngine => {
+                Some(QueueConsumer::Module)
+            }
         }
     }
 
@@ -80,6 +83,7 @@ impl PgmqQueue {
             PgmqQueue::WebhookIn => "webhook_in",
             PgmqQueue::VatValidation => "vat_validation",
             PgmqQueue::CreditRecompute => "credit_recompute",
+            PgmqQueue::WorkflowEngine => "workflow_engine",
         }
     }
 }
@@ -103,6 +107,7 @@ impl std::str::FromStr for PgmqQueue {
             "webhook_in" => Ok(PgmqQueue::WebhookIn),
             "vat_validation" => Ok(PgmqQueue::VatValidation),
             "credit_recompute" => Ok(PgmqQueue::CreditRecompute),
+            "workflow_engine" => Ok(PgmqQueue::WorkflowEngine),
             _ => Err(format!("Unknown queue: {s}")),
         }
     }

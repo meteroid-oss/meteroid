@@ -2,7 +2,9 @@ use crate::StoreResult;
 use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
-use crate::domain::outbox_event::{OutboxEvent, SubscriptionEvent, SubscriptionUpdateType};
+use crate::domain::outbox_event::{
+    OutboxEvent, SubscriptionEvent, SubscriptionUpdateType, replaced_custom_properties,
+};
 use crate::domain::prices::{
     FeeStructure, Price, fee_type_billing_period, resolve_subscription_fee,
 };
@@ -521,6 +523,23 @@ impl Store {
             )?;
         }
 
+        // Read under the customer's lock: two patches of the subscription's custom properties
+        // merge one after the other, and each event reports what it really replaced.
+        let previous_properties = if patch.custom_properties.is_some() {
+            let _lock = crate::repositories::credit::customer_credit::lock_customer_tx(
+                conn,
+                tenant_id,
+                existing.subscription.customer_id,
+            )
+            .await?;
+            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, patch.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .subscription
+                .custom_properties
+        } else {
+            existing.subscription.custom_properties.clone()
+        };
         let custom_properties = match &patch.custom_properties {
             Some(provided) => Some(
                 self.internal
@@ -529,7 +548,7 @@ impl Store {
                         tenant_id,
                         crate::domain::enums::CustomPropertyEntityType::Subscription,
                         provided,
-                        &existing.subscription.custom_properties,
+                        &previous_properties,
                         crate::domain::custom_property_definitions::CustomPropertyMode::Merge,
                     )
                     .await?,
@@ -683,6 +702,8 @@ impl Store {
 
         let mut event: SubscriptionEvent = updated.clone().into();
         event.change_type = Some(SubscriptionUpdateType::BillingConfigurationUpdated);
+        event.previous_custom_properties =
+            replaced_custom_properties(&previous_properties, &event.custom_properties);
         self.internal
             .record_outbox_batch_tx(
                 conn,

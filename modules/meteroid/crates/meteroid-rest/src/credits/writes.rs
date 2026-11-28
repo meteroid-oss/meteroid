@@ -39,7 +39,7 @@ use std::str::FromStr;
 fn actor_user(auth: &AuthorizedAsTenant) -> Option<uuid::Uuid> {
     match auth.actor {
         TenantActor::User { .. } => Some(auth.actor.id()),
-        TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) => None,
+        TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) | TenantActor::Workflow(_) => None,
     }
 }
 

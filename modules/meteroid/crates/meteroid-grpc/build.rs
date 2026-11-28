@@ -84,6 +84,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "walletcontrols",
         "wallets",
         "webhooksout",
+        "workflows",
     ];
 
     let mut proto_files = Vec::new();

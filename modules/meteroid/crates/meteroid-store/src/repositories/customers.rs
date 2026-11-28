@@ -3,7 +3,7 @@ use crate::domain::custom_property_definitions::CustomPropertyMode;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::CustomPropertyEntityType;
 use crate::domain::filters::Filter;
-use crate::domain::outbox_event::OutboxEvent;
+use crate::domain::outbox_event::{OutboxEvent, replaced_custom_properties};
 use crate::domain::pgmq::{
     HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PennylaneSyncCustomer,
     PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue, VatValidationRequestEvent,
@@ -670,10 +670,12 @@ impl CustomersInterface for Store {
                         return Ok(None);
                     };
                     let mut patch_model = patch_model;
+                    let mut previous_props = None;
                     if let Some(provided) = &provided_props {
                         let existing = CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
+                        previous_props = Some(existing.custom_properties.clone());
                         patch_model.custom_properties = Some(
                             self.internal
                                 .validate_and_normalize_custom_properties(
@@ -759,8 +761,13 @@ impl CustomersInterface for Store {
                             }
                             credit_inputs::bump_customer(conn, &lock).await?;
                             let updated: Customer = updated.try_into()?;
-                            let outbox_events =
-                                vec![OutboxEvent::customer_updated(updated.clone().into())];
+                            let mut event: crate::domain::outbox_event::CustomerEvent =
+                                updated.clone().into();
+                            event.previous_custom_properties =
+                                previous_props.as_ref().and_then(|before| {
+                                    replaced_custom_properties(before, &event.custom_properties)
+                                });
+                            let outbox_events = vec![OutboxEvent::customer_updated(event)];
                             self.internal
                                 .record_outbox_batch_tx(conn, tenant_id, actor, outbox_events)
                                 .await?;
@@ -978,6 +985,12 @@ impl CustomersInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?
                         .pop()
                         .ok_or(StoreError::ValueNotFound("Customer not found".to_string()))?;
+                    // Under the lock, so the event reports what this update really replaced.
+                    let previous_props =
+                        CustomerRow::find_by_id(conn, &update_model.id, &tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?
+                            .custom_properties;
                     let updated = update_model
                         .update(conn, tenant_id)
                         .await
@@ -993,7 +1006,11 @@ impl CustomersInterface for Store {
 
                     let updated: Customer = updated.try_into()?;
 
-                    let outbox_events = vec![OutboxEvent::customer_updated(updated.clone().into())];
+                    let mut event: crate::domain::outbox_event::CustomerEvent =
+                        updated.clone().into();
+                    event.previous_custom_properties =
+                        replaced_custom_properties(&previous_props, &event.custom_properties);
+                    let outbox_events = vec![OutboxEvent::customer_updated(event)];
                     self.internal
                         .record_outbox_batch_tx(conn, tenant_id, actor, outbox_events)
                         .await?;

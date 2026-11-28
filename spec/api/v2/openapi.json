@@ -24654,7 +24654,8 @@
           "api_token",
           "customer",
           "quote_recipient",
-          "oauth_app"
+          "oauth_app",
+          "workflow"
         ]
       },
       "AddOn": {
@@ -30451,6 +30452,10 @@
           },
           "data": {
             "$ref": "#/components/schemas/Customer"
+          },
+          "previous_attributes": {
+            "$ref": "#/components/schemas/PreviousAttributes",
+            "description": "On `customer.updated` and `subscription.updated`: what the change replaced. Absent when it replaced none of the attributes listed there."
           }
         }
       },
@@ -32108,7 +32113,8 @@
           "customer",
           "system",
           "api_key",
-          "oauth_app"
+          "oauth_app",
+          "workflow"
         ]
       },
       "EventCost": {
@@ -32172,6 +32178,7 @@
         "x-extensible-enum": [
           "metric.created",
           "customer.created",
+          "customer.updated",
           "subscription.created",
           "subscription.updated",
           "subscription.cancelled",
@@ -32230,7 +32237,10 @@
           "subscription.renewal_upcoming",
           "entitlement.override_ending_soon",
           "entitlement.override_ended",
-          "subscription.trial_ending_soon"
+          "subscription.trial_ending_soon",
+          "workflow_run.started",
+          "workflow_run.succeeded",
+          "workflow_run.failed"
         ]
       },
       "Expiry": {
@@ -36242,6 +36252,19 @@
           "subscription_after"
         ]
       },
+      "PreviousAttributes": {
+        "type": "object",
+        "description": "What the change behind an `*.updated` event replaced, beside its `data`.",
+        "properties": {
+          "custom_properties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The previous value of each custom property the change set, replaced or removed (`null`\nwhere it was unset)."
+          }
+        }
+      },
       "PriceCreditUnit": {
         "type": "object",
         "description": "A usage or overage price expressed in a credit unit: its amounts are credits, each worth\n`rate` of the price currency when billed.",
@@ -38636,6 +38659,10 @@
           },
           "data": {
             "$ref": "#/components/schemas/Subscription"
+          },
+          "previous_attributes": {
+            "$ref": "#/components/schemas/PreviousAttributes",
+            "description": "On `customer.updated` and `subscription.updated`: what the change replaced. Absent when it replaced none of the attributes listed there."
           }
         }
       },
@@ -42249,6 +42276,31 @@
         "summary": "customer.created webhook",
         "description": "A new customer was created\n\n`data` is the resource as `GET /api/v2/customers/{id_or_alias}` reads it, when the event is processed.",
         "operationId": "webhook_customer_created",
+        "tags": [
+          "Webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Received: any 2xx answer acknowledges it"
+          }
+        }
+      }
+    },
+    "customer.updated": {
+      "post": {
+        "summary": "customer.updated webhook",
+        "description": "A customer was updated (details, addresses, owner, custom properties, ...)\n\n`data` is the resource as `GET /api/v2/customers/{id_or_alias}` reads it, when the event is processed.",
+        "operationId": "webhook_customer_updated",
         "tags": [
           "Webhooks"
         ],

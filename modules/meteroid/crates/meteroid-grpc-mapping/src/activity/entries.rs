@@ -29,6 +29,7 @@ pub fn actor_type_to_proto(a: ActorType) -> ProtoActorType {
         ActorType::Customer => ProtoActorType::Customer,
         ActorType::QuoteRecipient => ProtoActorType::QuoteRecipient,
         ActorType::OAuthApp => ProtoActorType::OauthApp,
+        ActorType::Workflow => ProtoActorType::Workflow,
     }
 }
 
@@ -41,6 +42,7 @@ pub fn proto_actor_type_to_domain(a: ProtoActorType) -> Option<ActorType> {
         ProtoActorType::Customer => Some(ActorType::Customer),
         ProtoActorType::QuoteRecipient => Some(ActorType::QuoteRecipient),
         ProtoActorType::OauthApp => Some(ActorType::OAuthApp),
+        ProtoActorType::Workflow => Some(ActorType::Workflow),
     }
 }
 

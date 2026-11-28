@@ -9,6 +9,7 @@ pub enum ActorTypeEnum {
     QuoteRecipient,
     #[db_rename = "OAUTH_APP"]
     OAuthApp,
+    Workflow,
 }
 
 /// Discriminator for the stateless, invoice-time *adjustment* family (floor/cap terms).
@@ -107,6 +108,7 @@ impl From<common_domain::actor::ActorType> for ActorTypeEnum {
             common_domain::actor::ActorType::Customer => Self::Customer,
             common_domain::actor::ActorType::QuoteRecipient => Self::QuoteRecipient,
             common_domain::actor::ActorType::OAuthApp => Self::OAuthApp,
+            common_domain::actor::ActorType::Workflow => Self::Workflow,
         }
     }
 }
@@ -120,6 +122,7 @@ impl From<ActorTypeEnum> for common_domain::actor::ActorType {
             ActorTypeEnum::Customer => Self::Customer,
             ActorTypeEnum::QuoteRecipient => Self::QuoteRecipient,
             ActorTypeEnum::OAuthApp => Self::OAuthApp,
+            ActorTypeEnum::Workflow => Self::Workflow,
         }
     }
 }
@@ -1476,4 +1479,35 @@ pub enum JournalEntryKindEnum {
 pub enum JournalEntryStatusEnum {
     Draft,
     Posted,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::WorkflowTriggerTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum WorkflowTriggerTypeEnum {
+    Event,
+    Schedule,
+    Manual,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::WorkflowRunStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum WorkflowRunStatusEnum {
+    Pending,
+    Running,
+    Waiting,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[ExistingTypePath = "crate::schema::sql_types::WorkflowStepStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum WorkflowStepStatusEnum {
+    Running,
+    Succeeded,
+    Failed,
+    Skipped,
 }

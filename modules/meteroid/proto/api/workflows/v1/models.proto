@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package meteroid.api.workflows.v1;
+
+enum WorkflowTriggerType {
+  WORKFLOW_TRIGGER_TYPE_UNSPECIFIED = 0;
+  WORKFLOW_TRIGGER_TYPE_EVENT = 1;
+  WORKFLOW_TRIGGER_TYPE_SCHEDULE = 2;
+  WORKFLOW_TRIGGER_TYPE_MANUAL = 3;
+}
+
+enum WorkflowRunStatus {
+  WORKFLOW_RUN_STATUS_UNSPECIFIED = 0;
+  WORKFLOW_RUN_STATUS_PENDING = 1;
+  WORKFLOW_RUN_STATUS_RUNNING = 2;
+  WORKFLOW_RUN_STATUS_WAITING = 3;
+  WORKFLOW_RUN_STATUS_SUCCEEDED = 4;
+  WORKFLOW_RUN_STATUS_FAILED = 5;
+  WORKFLOW_RUN_STATUS_CANCELLED = 6;
+}
+
+enum WorkflowStepStatus {
+  WORKFLOW_STEP_STATUS_UNSPECIFIED = 0;
+  WORKFLOW_STEP_STATUS_RUNNING = 1;
+  WORKFLOW_STEP_STATUS_SUCCEEDED = 2;
+  WORKFLOW_STEP_STATUS_FAILED = 3;
+  WORKFLOW_STEP_STATUS_SKIPPED = 4;
+}
+
+// Definitions travel as JSON (ADR-0016 §2): the server parses and validates them, the builder
+// edits them.
+message Workflow {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  string draft_json = 4;
+  bool active = 5;
+  optional int32 active_version = 6;
+  optional WorkflowTriggerType trigger_type = 7;
+  optional string trigger_event = 8;
+  optional string next_fire_at = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  // The draft differs from the active version.
+  bool has_unpublished_changes = 12;
+}
+
+message WorkflowVersion {
+  string id = 1;
+  int32 version = 2;
+  string definition_json = 3;
+  optional string note = 4;
+  string created_at = 5;
+}
+
+message WorkflowRun {
+  string id = 1;
+  string workflow_id = 2;
+  string version_id = 3;
+  WorkflowTriggerType trigger_type = 4;
+  WorkflowRunStatus status = 5;
+  string context_json = 6;
+  optional string next_wake_at = 7;
+  optional string error_code = 8;
+  optional string error_message = 9;
+  optional string failed_node_id = 10;
+  string started_at = 11;
+  optional string finished_at = 12;
+  // The step the run is at, as `{node_id, iteration}`.
+  string position_json = 13;
+  optional string workflow_name = 14;
+}
+
+message WorkflowStepRun {
+  string id = 1;
+  string node_id = 2;
+  // Loop indexes from the outermost loop, dot-separated; empty outside any loop.
+  string iteration = 3;
+  string kind = 4;
+  WorkflowStepStatus status = 5;
+  int32 attempts = 6;
+  optional string input_json = 7;
+  optional string output_json = 8;
+  optional string error_code = 9;
+  optional string error_message = 10;
+  optional string request_id = 11;
+  string started_at = 12;
+  optional string finished_at = 13;
+}
+
+message ValidationIssue {
+  // A JSON pointer into the definition.
+  string path = 1;
+  string message = 2;
+}
+
+message CatalogAction {
+  string id = 1;
+  string label = 2;
+  string group = 3;
+  // The v2 operation the action is, e.g. `PATCH /customers/{id_or_alias}`; empty for a native action.
+  string operation = 4;
+  repeated string path_params = 5;
+  bool list = 6;
+  string description = 7;
+  // Grants, charges, invoices, credits or cancels: the builder asks before activating it.
+  bool moves_money = 8;
+  repeated CatalogField input_fields = 9;
+  // Under `steps.<id>.output`.
+  repeated CatalogField output_fields = 10;
+}
+
+// A field of an action's input or output, or of an event's payload, from the v2 document.
+message CatalogField {
+  // Dotted; `[]` marks a list's items (`lines[].name`).
+  string path = 1;
+  string type = 2;
+  optional string format = 3;
+  optional string description = 4;
+  bool required = 5;
+  repeated string options = 6;
+  // `path`, `query` or `body` for an input; empty otherwise.
+  string location = 7;
+}
+
+message CatalogEvent {
+  string type = 1;
+  string description = 2;
+  // Under `trigger`.
+  repeated CatalogField fields = 3;
+}

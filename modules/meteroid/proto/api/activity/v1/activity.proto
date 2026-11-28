@@ -10,6 +10,7 @@ enum ActorType {
   CUSTOMER = 4;
   QUOTE_RECIPIENT = 5;
   OAUTH_APP = 6;
+  WORKFLOW = 7;
 }
 
 // `activity_type` is a free-form string so adding events doesn't roll the proto.

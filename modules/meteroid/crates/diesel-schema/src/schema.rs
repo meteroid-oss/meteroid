@@ -438,6 +438,18 @@ pub mod sql_types {
     pub struct WebhookEndpointDisabledReasonEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "WorkflowRunStatusEnum"))]
+    pub struct WorkflowRunStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "WorkflowStepStatusEnum"))]
+    pub struct WorkflowStepStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "WorkflowTriggerTypeEnum"))]
+    pub struct WorkflowTriggerTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "xid8", schema = "pg_catalog"))]
     pub struct Xid8;
 }
@@ -4472,6 +4484,103 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::WorkflowTriggerTypeEnum;
+
+    workflow (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        draft -> Jsonb,
+        active_version_id -> Nullable<Uuid>,
+        trigger_type -> Nullable<WorkflowTriggerTypeEnum>,
+        trigger_event -> Nullable<Text>,
+        next_fire_at -> Nullable<Timestamptz>,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::WorkflowTriggerTypeEnum;
+    use super::sql_types::WorkflowRunStatusEnum;
+
+    workflow_run (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        workflow_id -> Uuid,
+        version_id -> Uuid,
+        trigger_type -> WorkflowTriggerTypeEnum,
+        trigger_event_id -> Nullable<Uuid>,
+        idempotency_key -> Nullable<Text>,
+        status -> WorkflowRunStatusEnum,
+        position -> Jsonb,
+        context -> Jsonb,
+        origin -> Jsonb,
+        next_wake_at -> Nullable<Timestamptz>,
+        locked_until -> Nullable<Timestamptz>,
+        error_code -> Nullable<Text>,
+        error_message -> Nullable<Text>,
+        failed_node_id -> Nullable<Text>,
+        created_by -> Nullable<Uuid>,
+        started_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::WorkflowStepStatusEnum;
+
+    workflow_step_run (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        run_id -> Uuid,
+        node_id -> Text,
+        iteration -> Text,
+        kind -> Text,
+        status -> WorkflowStepStatusEnum,
+        attempts -> Int4,
+        input -> Nullable<Jsonb>,
+        output -> Nullable<Jsonb>,
+        error_code -> Nullable<Text>,
+        error_message -> Nullable<Text>,
+        request_id -> Nullable<Text>,
+        started_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    workflow_event_sample (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        event_type -> Text,
+        envelope -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    workflow_version (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        workflow_id -> Uuid,
+        version -> Int4,
+        definition -> Jsonb,
+        api_version -> Text,
+        note -> Nullable<Text>,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(add_on -> price (price_id));
 diesel::joinable!(add_on -> product (product_id));
 diesel::joinable!(add_on -> tenant (tenant_id));
@@ -4939,3 +5048,11 @@ diesel::joinable!(webhook_out_message -> tenant (tenant_id));
 diesel::joinable!(webhook_out_message_version -> webhook_out_message (message_id));
 diesel::joinable!(webhook_out_retired_secret -> tenant (tenant_id));
 diesel::joinable!(webhook_out_retired_secret -> webhook_out_endpoint (endpoint_id));
+diesel::joinable!(workflow -> tenant (tenant_id));
+diesel::joinable!(workflow_run -> tenant (tenant_id));
+diesel::joinable!(workflow_run -> workflow (workflow_id));
+diesel::joinable!(workflow_run -> workflow_version (version_id));
+diesel::joinable!(workflow_event_sample -> tenant (tenant_id));
+diesel::joinable!(workflow_step_run -> tenant (tenant_id));
+diesel::joinable!(workflow_step_run -> workflow_run (run_id));
+diesel::joinable!(workflow_version -> tenant (tenant_id));

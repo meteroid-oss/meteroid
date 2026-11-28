@@ -733,6 +733,7 @@ pub enum ActorKind {
     Customer,
     QuoteRecipient,
     OauthApp,
+    Workflow,
 }
 
 /// Who made a change.
@@ -889,6 +890,7 @@ pub async fn list_rate_card_changes(
                         ActorType::Customer => ActorKind::Customer,
                         ActorType::QuoteRecipient => ActorKind::QuoteRecipient,
                         ActorType::OAuthApp => ActorKind::OauthApp,
+                        ActorType::Workflow => ActorKind::Workflow,
                     },
                     id: entry.actor_uuid.map(|id| id.to_string()),
                 },

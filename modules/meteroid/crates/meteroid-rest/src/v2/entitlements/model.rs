@@ -664,6 +664,7 @@ pub fn change_actor(actor: &Actor) -> ChangeActor {
         Actor::Customer { id } => (ActorKind::Customer, Some(id.to_string())),
         Actor::QuoteRecipient { .. } => (ActorKind::QuoteRecipient, None),
         Actor::OAuthApp { id } => (ActorKind::OauthApp, Some(id.to_string())),
+        Actor::Workflow { id } => (ActorKind::Workflow, Some(id.to_string())),
     };
     ChangeActor { kind, id }
 }

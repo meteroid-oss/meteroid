@@ -213,6 +213,12 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         | "CustomPropertiesService"
         | "CustomPropertyDefinitionsService"
         | "CreditUnitsService" => rw(method, SettingsRead, SettingsManage),
+        // A workflow acts with the tenant's authority, as an API key does; its definitions and
+        // runs hold customer and invoice data and secrets, so reading them is managing too.
+        "WorkflowsService" => match method {
+            "GetWorkflowCatalog" | "CheckWorkflowDraft" => RouteAuth::Requires(SettingsRead),
+            _ => RouteAuth::Requires(SettingsManage),
+        },
 
         // A correction's annexes are part of the invoice: rebuilding them edits the draft.
         "AnnexTemplatesService" => match method {

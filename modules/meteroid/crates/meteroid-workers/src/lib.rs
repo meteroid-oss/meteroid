@@ -367,6 +367,7 @@ pub async fn spawn_workers(
             analytics: analytics.clone(),
             pending_usage: metering,
             egress: egress.clone(),
+            object_store: object_store_service.clone(),
         };
         for module in &modules.workers {
             module.spawn(&ctx, &mut join_set);
@@ -676,6 +677,7 @@ mod tests {
                 PgmqQueue::PennylaneSync,
                 PgmqQueue::DogfoodingSync,
                 PgmqQueue::CreditRecompute,
+                PgmqQueue::WorkflowEngine,
             ]
         );
         let mut all = core_queues();
@@ -683,7 +685,7 @@ mod tests {
         assert!(
             queues_to_drain(&all, |q| matches!(
                 q,
-                PgmqQueue::DogfoodingSync | PgmqQueue::CreditRecompute
+                PgmqQueue::DogfoodingSync | PgmqQueue::CreditRecompute | PgmqQueue::WorkflowEngine
             ))
             .is_empty()
         );

@@ -1,5 +1,5 @@
 use common_domain::actor::Actor;
-use common_domain::ids::{EntitlementEntityId, ResourceTypeId};
+use common_domain::ids::{BaseId, EntitlementEntityId, ResourceTypeId};
 use meteroid_store::domain::entitlement_checks::{
     AppCountExplain as DomainAppCountExplain, CheckLevel, CheckLevelExplain, CheckResponse,
     DecidingCandidate as DomainCandidate, LevelValue, Snapshot, SnapshotFeature,
@@ -391,6 +391,7 @@ pub fn actor_to_rest(actor: Actor) -> EntitlementActor {
         Actor::User { id } => (WebhookOutActorType::User, Some(id.to_string())),
         Actor::ApiToken { id } => (WebhookOutActorType::ApiKey, Some(id.to_string())),
         Actor::OAuthApp { id } => (WebhookOutActorType::OauthApp, Some(id.to_string())),
+        Actor::Workflow { id } => (WebhookOutActorType::System, Some(id.as_base62())),
         Actor::Customer { id } => (WebhookOutActorType::Customer, Some(id.to_string())),
         Actor::System | Actor::QuoteRecipient { .. } => (WebhookOutActorType::System, None),
     };

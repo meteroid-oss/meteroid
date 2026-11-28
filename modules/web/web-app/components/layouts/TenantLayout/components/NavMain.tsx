@@ -92,7 +92,11 @@ function Tree({
     : item.url
       ? pathname.includes((item.url as string) ?? '')
       : false
-  const isSubActive = item.items?.some(subItem => pathname.includes((subItem.url as string) ?? ''))
+  const currentSubUrl = item.items
+    ?.map(subItem => (subItem.url as string) ?? '')
+    .filter(url => url && pathname.includes(url))
+    .sort((a, b) => b.length - a.length)[0]
+  const isSubActive = currentSubUrl !== undefined
 
   const handCollapsibleClick = () => {
     if (state === 'collapsed') {
@@ -132,7 +136,7 @@ function Tree({
               {item.title}
             </div>
             {item.items.map((subItem, index) => {
-              const current = pathname.includes((subItem.url as string) ?? '')
+              const current = subItem.url === currentSubUrl
               return (
                 <NavLink
                   key={index}
@@ -203,7 +207,7 @@ function Tree({
         <div id={panelId} className="mt-nav-group-panel">
           <div className="mt-nav-group-inner">
             {item.items.map((subItem, index) => {
-              const isSubActive = pathname.includes((subItem.url as string) ?? '')
+              const isSubActive = subItem.url === currentSubUrl
 
               return (
                 <div

@@ -187,8 +187,8 @@ pub async fn get_me(
                 .and_then(|reach| reach.expires_at)
                 .map(|at| at.and_utc().into()),
         },
-        // The REST API authenticates keys and tokens, never a dashboard session.
-        TenantActor::User { .. } => {
+        // The REST API authenticates keys and tokens, never a dashboard session or a workflow.
+        TenantActor::User { .. } | TenantActor::Workflow(_) => {
             return Err(Problem::new(
                 http::StatusCode::FORBIDDEN,
                 ProblemCode::Forbidden,

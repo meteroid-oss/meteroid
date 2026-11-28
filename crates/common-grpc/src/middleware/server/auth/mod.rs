@@ -8,7 +8,7 @@ use common_domain::actor::Actor;
 use common_domain::auth::{OrgMemberRole, PortalScope};
 use common_domain::ids::{
     ApiTokenId, BaseId, CheckoutSessionId, CustomerId, InvoiceId, OAuthAppId, OrganizationId,
-    QuoteId, SavedViewId, TenantId, UserId,
+    QuoteId, SavedViewId, TenantId, UserId, WorkflowId,
 };
 
 mod admin_layer;
@@ -264,6 +264,7 @@ pub enum TenantActor {
     ApiKey(ApiTokenId),
     User { id: UserId, role: OrgMemberRole },
     OAuthApp(OAuthAppId),
+    Workflow(WorkflowId),
 }
 
 impl TenantActor {
@@ -272,12 +273,13 @@ impl TenantActor {
             TenantActor::ApiKey(id) => id.as_uuid(),
             TenantActor::User { id, .. } => id.as_uuid(),
             TenantActor::OAuthApp(id) => id.as_uuid(),
+            TenantActor::Workflow(id) => id.as_uuid(),
         }
     }
 
     pub fn role(&self) -> Option<OrgMemberRole> {
         match self {
-            TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) => None,
+            TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) | TenantActor::Workflow(_) => None,
             TenantActor::User { role, .. } => Some(*role),
         }
     }
@@ -297,6 +299,7 @@ impl AuthorizedAsTenant {
             TenantActor::User { id, .. } => Actor::User { id },
             TenantActor::ApiKey(id) => Actor::ApiToken { id },
             TenantActor::OAuthApp(id) => Actor::OAuthApp { id },
+            TenantActor::Workflow(id) => Actor::Workflow { id },
         }
     }
 }
