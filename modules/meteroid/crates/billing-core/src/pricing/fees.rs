@@ -188,6 +188,72 @@ pub fn tiered(
     })
 }
 
+/// A volume agreement member's line of `line_units`, its tiers picked at `max(basis,
+/// member_units)` (ADR-0021 §2): the ladder's exact amount there, times the line's units, divided
+/// by it, rounded once. One subline, the bracket's rate for a volume price, else the tiers' average.
+pub fn pooled_line(
+    model: &UsageModel,
+    line_units: Decimal,
+    member_units: Decimal,
+    basis: Decimal,
+    precision: u8,
+) -> Result<PricedLine, PricingError> {
+    let at = basis.max(member_units);
+    let (name, exact, unit_price, attributes) = match model {
+        UsageModel::Volume { tiers, .. } => {
+            distinct_starts(tiers)?;
+            match volume_charge(at, tiers) {
+                Some(c) => (
+                    "Volume",
+                    c.amount,
+                    c.unit_price,
+                    Some(SubLineAttributes::Volume {
+                        first_unit: c.first_unit,
+                        last_unit: c.last_unit,
+                        flat_cap: c.flat_cap,
+                        flat_fee: c.flat_fee,
+                    }),
+                ),
+                None => ("Volume", Decimal::ZERO, Decimal::ZERO, None),
+            }
+        }
+        UsageModel::Tiered { tiers, .. } => {
+            distinct_starts(tiers)?;
+            let exact = tiered_charges(at, tiers)
+                .iter()
+                .try_fold(Decimal::ZERO, |sum, c| sum.checked_add(c.amount))
+                .ok_or(PricingError::OutOfRange)?;
+            ("Tiered", exact, share(exact, Decimal::ONE, at)?, None)
+        }
+        _ => return Err(PricingError::InvalidPrice),
+    };
+    let subline = SubLine {
+        name: name.to_string(),
+        total: 0,
+        quantity: line_units,
+        unit_price,
+        attributes,
+    };
+    let line =
+        PricedLine::from_exact_sublines(vec![(subline, share(exact, line_units, at)?)], precision)?;
+    Ok(PricedLine {
+        quantity: Some(line_units),
+        total: line.total.max(0),
+        ..line
+    })
+}
+
+/// `value × part / whole`, multiplied first; nothing of an empty whole.
+fn share(value: Decimal, part: Decimal, whole: Decimal) -> Result<Decimal, PricingError> {
+    if whole.is_zero() {
+        return Ok(Decimal::ZERO);
+    }
+    value
+        .checked_mul(part)
+        .and_then(|v| v.checked_div(whole))
+        .ok_or(PricingError::OutOfRange)
+}
+
 /// The unrounded amount `usage_units` of usage costs under a pricing model. `None` for rates
 /// by dimension, which need per-dimension quantities.
 pub fn usage_amount(model: &UsageModel, usage_units: Decimal) -> Option<Decimal> {

@@ -297,6 +297,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod volumeagreements {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.volumeagreements.v1");
+            }
+        }
+
         pub mod invoiceannextemplates {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.invoiceannextemplates.v1");

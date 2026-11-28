@@ -28,6 +28,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "connect",
         "connectors",
         "consolidation",
+        "volumeagreements",
         "creditunits",
         "quantities",
         "ratecards",

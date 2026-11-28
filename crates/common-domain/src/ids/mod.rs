@@ -78,6 +78,8 @@ id_type!(TrialOfferId, "ofr_");
 pub type OfferId = TrialOfferId;
 id_type!(OfferGrantId, "ofg_");
 id_type!(OfferApplicationId, "ofa_");
+id_type!(VolumeAgreementId, "vag_");
+id_type!(VolumeAgreementMemberId, "vagm_");
 id_type!(ConnectedAccountId, "cacc_");
 id_type!(OAuthAppId, "app_");
 id_type!(BatchJobId, "bjob_");

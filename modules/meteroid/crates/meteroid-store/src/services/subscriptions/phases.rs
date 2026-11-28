@@ -147,7 +147,8 @@ pub(in crate::services) async fn set_phases_tx(
         })
         .collect();
     timeline_rewrite::replay_with_tx(services, conn, actor, lifted, authored).await?;
-    Ok(())
+    crate::services::volume_agreements::recheck_memberships_tx(conn, tenant_id, subscription_id)
+        .await
 }
 
 pub(crate) async fn list_phases_tx(

@@ -91,6 +91,8 @@ pub struct LoadedFacts {
     pub metrics: Vec<BillableMetric>,
     /// Seats bought and still paying: not facts until their payment settles.
     pub pending_seats: Vec<SlotTransactionId>,
+    /// The volume agreements the subscription is a member of (ADR-0021).
+    pub pool: Option<Box<crate::services::volume_agreements::PoolContext>>,
 }
 
 /// A fee row resolved to the domain, a closed one as stored, an open one from its price.
@@ -276,13 +278,37 @@ pub async fn load_facts_with(
     overlay: Option<&Overlay>,
 ) -> StoreResult<LoadedFacts> {
     // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-    Box::pin(load_facts_of(
+    let mut loaded = Box::pin(load_facts_of(
         conn,
         tenant_id,
         subscription_id,
         as_of,
         draft,
         overlay,
+        None,
+    ))
+    .await?;
+    loaded.pool =
+        crate::services::volume_agreements::load_pool(conn, tenant_id, subscription_id, as_of)
+            .await?
+            .map(Box::new);
+    Ok(loaded)
+}
+
+/// [`load_facts`] without the subscription's agreements: a peer's facts, read for its usage.
+pub(crate) async fn load_facts_unpooled(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    as_of: NaiveDate,
+) -> StoreResult<LoadedFacts> {
+    Box::pin(load_facts_of(
+        conn,
+        tenant_id,
+        subscription_id,
+        as_of,
+        None,
+        None,
         None,
     ))
     .await
@@ -492,6 +518,7 @@ async fn load_facts_of(
         customer_id: subscription.customer_id,
         metrics,
         pending_seats,
+        pool: None,
     })
 }
 
@@ -659,6 +686,7 @@ pub(crate) async fn facts_of_details(
         customer_id: subscription.customer_id,
         metrics,
         pending_seats: Vec::new(),
+        pool: None,
     })
 }
 

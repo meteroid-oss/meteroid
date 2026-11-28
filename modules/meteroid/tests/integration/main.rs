@@ -125,6 +125,7 @@ mod test_trial_switch_gate;
 mod test_usage_costs_metering;
 mod test_user;
 mod test_user_deletion;
+mod test_volume_agreements;
 mod test_wallet_guards;
 mod test_webhook;
 mod test_webhook_out_native;

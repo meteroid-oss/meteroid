@@ -71,6 +71,7 @@ mod usage_attribution;
 pub(crate) mod usage_controls_support;
 pub mod usage_costs;
 pub(crate) mod usage_grouping;
+pub mod volume_agreements;
 pub mod webhooks;
 
 use crate::domain::{PaymentTransaction, Subscription};

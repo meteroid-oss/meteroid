@@ -600,6 +600,12 @@ impl Services {
             .record_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
             .await?;
 
+        crate::services::volume_agreements::recheck_memberships_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+        )
+        .await?;
         Ok((event, timeline))
     }
 
@@ -1935,6 +1941,12 @@ impl Services {
             prepared.direction,
         );
 
+        crate::services::volume_agreements::recheck_memberships_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+        )
+        .await?;
         Ok((credit_note_ids, timeline))
     }
 }

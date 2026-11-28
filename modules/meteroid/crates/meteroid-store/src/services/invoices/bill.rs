@@ -900,7 +900,17 @@ impl Services {
             .terminated_at
             .filter(|at| at.date() == invoice_date)
             .map_or(opens, |at| at.max(opens));
-        let finalize_after = window_end + chrono::Duration::hours(i64::from(effective_hours));
+        let mut finalize_after = window_end + chrono::Duration::hours(i64::from(effective_hours));
+        if let Some(hold) = crate::services::volume_agreements::finalization_hold(
+            conn,
+            tenant_id,
+            subscription.subscription.id,
+            invoice_date,
+        )
+        .await?
+        {
+            finalize_after = finalize_after.max(hold);
+        }
 
         InvoiceRow::set_finalize_after(conn, tenant_id, invoice_id, Some(finalize_after))
             .await

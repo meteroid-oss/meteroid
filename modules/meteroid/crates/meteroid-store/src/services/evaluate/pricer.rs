@@ -387,6 +387,16 @@ fn read(
     )
 }
 
+/// The whole of `usage` in what `fee` bills it in, its groups added up.
+pub(crate) fn billed_total(fee: &StoreFee, usage: &billing_core::pricer::Usage) -> Decimal {
+    usage
+        .iter()
+        .map(|(_, value)| {
+            pricing::converted_units(fee.conversion.factor, fee.conversion.rounding, *value)
+        })
+        .sum()
+}
+
 /// `usage` added up over `dimensions`; a card only rates a metric whose usage adds up.
 fn fold<'a>(
     usage: &'a billing_core::pricer::Usage,
@@ -429,9 +439,17 @@ fn usage_rates(
                 }),
                 None => model.into(),
             };
-            pricing::usage_lines(&model, &usage, precision, |dimensions| {
-                fee.pinned.get(&sorted(dimensions)).copied()
-            })?
+            let basis = reads.basis(&UsageRead {
+                metric,
+                window: *window,
+            });
+            pricing::pooled_usage_lines(
+                &model,
+                &usage,
+                precision,
+                |dimensions| fee.pinned.get(&sorted(dimensions)).copied(),
+                basis,
+            )?
         }
         SubscriptionFee::Capacity {
             included,

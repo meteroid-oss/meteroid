@@ -19,6 +19,18 @@ pub fn usage_lines(
     precision: u8,
     unit_price_override: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
 ) -> Result<Vec<PricedLine>, PricingError> {
+    pooled_usage_lines(model, usage, precision, unit_price_override, None)
+}
+
+/// [`usage_lines`] for a member of a volume agreement: tiered and volume prices pick their tiers
+/// from the agreement's volume of the metric (`basis`), and bill the member's share of it.
+pub fn pooled_usage_lines(
+    model: &UsageModel,
+    usage: &[GroupedUsage],
+    precision: u8,
+    unit_price_override: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
+    basis: Option<Decimal>,
+) -> Result<Vec<PricedLine>, PricingError> {
     let mut lines: Vec<PricedLine> = vec![];
     match model {
         UsageModel::RateCard(card) => lines.extend(rated_lines(card, usage, precision)?),
@@ -26,6 +38,10 @@ pub fn usage_lines(
             // Round so aggregation float noise (e.g. a summed 5524.098500000001)
             // never reaches the invoice.
             let qty_scale = model.billable_quantity_scale(precision);
+            let member_units: Decimal = usage
+                .iter()
+                .map(|g| round_quantity(g.value, qty_scale).max(Decimal::ZERO))
+                .sum();
 
             // Handle grouped usage data - create separate line items for each group
             for grouped_usage in usage {
@@ -52,6 +68,10 @@ pub fn usage_lines(
                             total,
                             ..simple_prorated(&effective_rate, &usage_units, None, precision)?
                         }
+                    }
+                    UsageModel::Tiered { .. } | UsageModel::Volume { .. } if basis.is_some() => {
+                        let basis = round_quantity(basis.unwrap_or_default(), qty_scale);
+                        fees::pooled_line(model, usage_units, member_units, basis, precision)?
                     }
                     _ => quantity_line(model, usage_units, precision)?,
                 };
@@ -503,5 +523,140 @@ mod tests {
             dimensions: HashMap::new(),
         }];
         assert!(capacity_overage_lines(Decimal::ZERO, &dec!(10), &usage, 2).is_err());
+    }
+
+    fn tier(first_unit: u64, rate: Decimal) -> super::super::Tier {
+        super::super::Tier {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        }
+    }
+
+    fn pooled(model: &UsageModel, own: Decimal, basis: Decimal) -> PricedLine {
+        let usage = [GroupedUsage {
+            value: own,
+            dimensions: HashMap::new(),
+        }];
+        let mut lines = pooled_usage_lines(model, &usage, 2, |_| None, Some(basis)).unwrap();
+        assert_eq!(lines.len(), 1);
+        lines.remove(0)
+    }
+
+    /// Three accounts of 400,000 SMS under one agreement are priced at the 1,200,000 bracket.
+    /// Rules: R-180
+    #[test]
+    fn a_volume_bracket_is_picked_by_the_agreement_and_billed_on_own_usage() {
+        let model = UsageModel::Volume {
+            tiers: vec![tier(0, dec!(0.07)), tier(500_000, dec!(0.06))],
+            block_size: None,
+        };
+        let line = pooled(&model, dec!(400000), dec!(1200000));
+        assert_eq!(line.total, 2_400_000);
+        assert_eq!(line.quantity, Some(dec!(400000)));
+        assert_eq!(line.sublines[0].unit_price, dec!(0.06));
+
+        let alone = usage_lines(
+            &model,
+            &[GroupedUsage {
+                value: dec!(400000),
+                dimensions: HashMap::new(),
+            }],
+            2,
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(alone[0].total, 2_800_000);
+    }
+
+    /// Graduated tiers bill the member's share of the agreement's amount, as one subline at the
+    /// tiers' average rate, and a bracket's flat fee is shared by usage.
+    /// Rules: R-180
+    #[test]
+    fn graduated_tiers_and_flat_fees_are_shared_by_usage() {
+        let model = UsageModel::Tiered {
+            tiers: vec![tier(0, dec!(1)), tier(1000, dec!(0.5))],
+            block_size: None,
+        };
+        let line = pooled(&model, dec!(1000), dec!(3000));
+        assert_eq!(line.total, 66_667);
+        assert_eq!(line.unit_price, None);
+        assert_eq!(line.sublines.len(), 1);
+        assert_eq!(line.sublines[0].quantity, dec!(1000));
+
+        let flat = UsageModel::Volume {
+            tiers: vec![super::super::Tier {
+                flat_fee: Some(dec!(90)),
+                ..tier(0, dec!(1))
+            }],
+            block_size: None,
+        };
+        assert_eq!(pooled(&flat, dec!(100), dec!(300)).total, 13_000);
+    }
+
+    /// The tiers are picked at the larger of the agreement's volume and the member's own (usage
+    /// counted after the close, a member alone): never a share of nothing.
+    /// Rules: R-180
+    #[test]
+    fn the_basis_is_never_below_the_member_usage() {
+        let model = UsageModel::Volume {
+            tiers: vec![tier(0, dec!(0.07)), tier(500_000, dec!(0.06))],
+            block_size: None,
+        };
+        assert_eq!(pooled(&model, dec!(600000), dec!(0)).total, 3_600_000);
+        assert_eq!(pooled(&model, dec!(400000), dec!(400000)).total, 2_800_000);
+
+        let capped = UsageModel::Volume {
+            tiers: vec![super::super::Tier {
+                flat_cap: Some(dec!(60000)),
+                ..tier(0, dec!(0.06))
+            }],
+            block_size: None,
+        };
+        assert_eq!(
+            pooled(&capped, dec!(700000), dec!(1200000)).total,
+            3_500_000
+        );
+    }
+
+    /// A free first tier is granted once to the agreement: pooled, three members bill more than
+    /// apart (ADR-0021 §2).
+    /// Rules: R-180
+    #[test]
+    fn a_free_first_tier_is_granted_once_to_the_agreement() {
+        let model = UsageModel::Tiered {
+            tiers: vec![tier(0, dec!(0)), tier(100_000, dec!(0.07))],
+            block_size: None,
+        };
+        assert_eq!(pooled(&model, dec!(400000), dec!(400000)).total, 2_100_000);
+        assert_eq!(pooled(&model, dec!(400000), dec!(1200000)).total, 2_566_667);
+    }
+
+    /// A member's lines by group all price at the bracket of the agreement's whole volume, and
+    /// net-negative groups never raise the member's own volume.
+    /// Rules: R-180
+    #[test]
+    fn every_group_of_a_member_prices_at_the_agreement_bracket() {
+        let model = UsageModel::Volume {
+            tiers: vec![tier(0, dec!(0.07)), tier(500_000, dec!(0.06))],
+            block_size: None,
+        };
+        let usage = [
+            GroupedUsage {
+                value: dec!(300000),
+                dimensions: HashMap::from([("country".to_string(), "PL".to_string())]),
+            },
+            GroupedUsage {
+                value: dec!(100000),
+                dimensions: HashMap::from([("country".to_string(), "DE".to_string())]),
+            },
+        ];
+        let lines = pooled_usage_lines(&model, &usage, 2, |_| None, Some(dec!(1200000))).unwrap();
+        let totals: Vec<i64> = lines.iter().map(|l| l.total).collect();
+        assert_eq!(totals, vec![1_800_000, 600_000]);
+
+        let jpy = pooled_usage_lines(&model, &usage, 0, |_| None, Some(dec!(1200000))).unwrap();
+        assert_eq!(jpy.iter().map(|l| l.total).sum::<i64>(), 24_000);
     }
 }

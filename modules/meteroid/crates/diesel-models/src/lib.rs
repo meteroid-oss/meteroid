@@ -123,6 +123,7 @@ pub mod tax_categories;
 pub mod tenants;
 pub mod trial_offers;
 pub mod users;
+pub mod volume_agreements;
 pub mod webhooks;
 pub mod webhooks_out;
 

@@ -90,3 +90,4 @@ modules/meteroid/crates/diesel-models/src/query/webhooks_out.rs::WebhookOutEndpo
 modules/meteroid/crates/meteroid-testkit/src/meteroid_it/container.rs::get_shared_postgres | advisory | integration tests: one process builds the template database, on the test server only
 modules/meteroid/crates/meteroid-testkit/src/meteroid_it/container.rs::reap_orphan_databases | advisory | integration tests: one process drops orphaned test databases, never waits
 modules/meteroid/crates/meteroid-testkit/src/meteroid_it/container.rs::ensure_seeded_template | advisory | integration tests: one process per seed level builds its seeded template database, on the test server only
+modules/meteroid/crates/diesel-models/src/query/volume_agreements.rs::VolumeAgreementBasisRow::lock_window | advisory | the close of one volume agreement window, in a transaction locking no customer

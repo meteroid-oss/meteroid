@@ -336,6 +336,10 @@ pub const NOT_COPIED: &[&str] = &[
     "subscription_start_settled",
     "subscription_trial",
     "subscription_usage_filter",
+    "volume_agreement",
+    "volume_agreement_basis",
+    "volume_agreement_member",
+    "volume_agreement_metric",
     // Credentials and the integrations that hold them.
     "api_token",
     "connector",

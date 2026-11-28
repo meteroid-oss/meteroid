@@ -115,7 +115,8 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         "SubscriptionsService"
         | "SubscriptionPhasesService"
         | "SubscriptionTrialsService"
-        | "RetentionService" => rw(method, SubscriptionsRead, SubscriptionsManage),
+        | "RetentionService"
+        | "VolumeAgreementsService" => rw(method, SubscriptionsRead, SubscriptionsManage),
         // Offers are catalog; a running trial is moved by `SubscriptionTrialsService`.
         "TrialsService" => rw(method, CatalogRead, CatalogManage),
         // Offers are catalog; applying one to a subscription and reading its grants are not.

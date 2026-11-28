@@ -4,8 +4,8 @@
 mod fees;
 mod usage;
 
-pub use fees::{tiered, usage_amount, usage_price, volume};
-pub use usage::{capacity_overage_lines, quantity_line, usage_lines};
+pub use fees::{pooled_line, tiered, usage_amount, usage_price, volume};
+pub use usage::{capacity_overage_lines, pooled_usage_lines, quantity_line, usage_lines};
 
 use std::collections::HashMap;
 

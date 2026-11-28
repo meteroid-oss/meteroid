@@ -4551,6 +4551,59 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BillingPeriodEnum;
+
+    volume_agreement (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        name -> Text,
+        currency -> Text,
+        cadence -> BillingPeriodEnum,
+        billing_day_anchor -> Int2,
+        start_date -> Date,
+        end_date -> Nullable<Date>,
+        owner_customer_id -> Nullable<Uuid>,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        created_by -> Uuid,
+        updated_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    volume_agreement_basis (agreement_id, billable_metric_id, period_start) {
+        tenant_id -> Uuid,
+        agreement_id -> Uuid,
+        billable_metric_id -> Uuid,
+        period_start -> Date,
+        period_end -> Date,
+        quantity -> Numeric,
+        closed_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    volume_agreement_member (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        agreement_id -> Uuid,
+        subscription_id -> Uuid,
+        from_date -> Date,
+        until_date -> Nullable<Date>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    volume_agreement_metric (agreement_id, billable_metric_id) {
+        agreement_id -> Uuid,
+        tenant_id -> Uuid,
+        billable_metric_id -> Uuid,
+    }
+}
+
+diesel::table! {
     webhook_in_event (id) {
         id -> Uuid,
         received_at -> Timestamptz,
@@ -5244,6 +5297,14 @@ diesel::joinable!(usage_fold -> billable_metric (billable_metric_id));
 diesel::joinable!(usage_fold -> customer (customer_id));
 diesel::joinable!(usage_fold -> tenant (tenant_id));
 diesel::joinable!(usage_monitor_state -> tenant (tenant_id));
+diesel::joinable!(volume_agreement -> customer (owner_customer_id));
+diesel::joinable!(volume_agreement -> tenant (tenant_id));
+diesel::joinable!(volume_agreement_basis -> billable_metric (billable_metric_id));
+diesel::joinable!(volume_agreement_basis -> volume_agreement (agreement_id));
+diesel::joinable!(volume_agreement_member -> subscription (subscription_id));
+diesel::joinable!(volume_agreement_member -> volume_agreement (agreement_id));
+diesel::joinable!(volume_agreement_metric -> billable_metric (billable_metric_id));
+diesel::joinable!(volume_agreement_metric -> volume_agreement (agreement_id));
 diesel::joinable!(webhook_in_event -> connector (provider_config_id));
 diesel::joinable!(webhook_out_attempt -> webhook_out_delivery (delivery_id));
 diesel::joinable!(webhook_out_delivery -> tenant (tenant_id));

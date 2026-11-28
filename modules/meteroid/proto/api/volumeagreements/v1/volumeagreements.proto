@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package meteroid.api.volumeagreements.v1;
+
+enum AgreementCadence {
+  AGREEMENT_CADENCE_MONTHLY = 0;
+  AGREEMENT_CADENCE_QUARTERLY = 1;
+  AGREEMENT_CADENCE_SEMIANNUAL = 2;
+  AGREEMENT_CADENCE_ANNUAL = 3;
+}
+
+message VolumeAgreement {
+  string id = 1;
+  string name = 2;
+  string currency = 3;
+  AgreementCadence cadence = 4;
+  uint32 billing_day_anchor = 5;
+  // Dates are YYYY-MM-DD.
+  string start_date = 6;
+  optional string end_date = 7;
+  optional string owner_customer_id = 8;
+  optional string owner_customer_name = 9;
+  repeated PooledMetric metrics = 10;
+  uint32 member_count = 11;
+  bool archived = 12;
+}
+
+message PooledMetric {
+  string id = 1;
+  string name = 2;
+}
+
+message Member {
+  string id = 1;
+  string subscription_id = 2;
+  string customer_id = 3;
+  string customer_name = 4;
+  string plan_name = 5;
+  string from_date = 6;
+  optional string until_date = 7;
+}
+
+// A window's volume of one pooled metric: live until the window closes.
+message WindowBasis {
+  string metric_id = 1;
+  string period_start = 2;
+  string period_end = 3;
+  string quantity = 4;
+  bool closed = 5;
+}
+
+message CreateVolumeAgreementRequest {
+  string name = 1;
+  string currency = 2;
+  AgreementCadence cadence = 3;
+  uint32 billing_day_anchor = 4;
+  string start_date = 5;
+  optional string owner_customer_id = 6;
+  repeated string metric_ids = 7;
+}
+message CreateVolumeAgreementResponse {
+  VolumeAgreement agreement = 1;
+}
+
+message UpdateVolumeAgreementRequest {
+  string id = 1;
+  string name = 2;
+  optional string owner_customer_id = 3;
+}
+message UpdateVolumeAgreementResponse {
+  VolumeAgreement agreement = 1;
+}
+
+message ArchiveVolumeAgreementRequest {
+  string id = 1;
+}
+message ArchiveVolumeAgreementResponse {
+  VolumeAgreement agreement = 1;
+}
+
+message ListVolumeAgreementsRequest {
+  // The agreements this subscription or customer's subscriptions are members of.
+  optional string subscription_id = 1;
+  optional string customer_id = 2;
+}
+message ListVolumeAgreementsResponse {
+  repeated VolumeAgreement agreements = 1;
+}
+
+message GetVolumeAgreementRequest {
+  string id = 1;
+}
+message GetVolumeAgreementResponse {
+  VolumeAgreement agreement = 1;
+  repeated Member members = 2;
+  repeated WindowBasis bases = 3;
+}
+
+message AddMemberRequest {
+  string agreement_id = 1;
+  string subscription_id = 2;
+  // The first period it pools; the agreement's open period when unset.
+  optional string from_date = 3;
+}
+message AddMemberResponse {
+  Member member = 1;
+}
+
+message EndMemberRequest {
+  string member_id = 1;
+  // The end of the open period when unset.
+  optional string until_date = 2;
+}
+message EndMemberResponse {
+  Member member = 1;
+}
+
+// Agreements counting the tiers of their members' pooled metrics on the members' combined volume.
+service VolumeAgreementsService {
+  rpc CreateVolumeAgreement(CreateVolumeAgreementRequest) returns (CreateVolumeAgreementResponse) {}
+  rpc UpdateVolumeAgreement(UpdateVolumeAgreementRequest) returns (UpdateVolumeAgreementResponse) {}
+  rpc ArchiveVolumeAgreement(ArchiveVolumeAgreementRequest) returns (ArchiveVolumeAgreementResponse) {}
+  rpc ListVolumeAgreements(ListVolumeAgreementsRequest) returns (ListVolumeAgreementsResponse) {}
+  rpc GetVolumeAgreement(GetVolumeAgreementRequest) returns (GetVolumeAgreementResponse) {}
+  rpc AddMember(AddMemberRequest) returns (AddMemberResponse) {}
+  rpc EndMember(EndMemberRequest) returns (EndMemberResponse) {}
+}

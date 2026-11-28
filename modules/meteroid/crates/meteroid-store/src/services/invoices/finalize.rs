@@ -295,6 +295,35 @@ impl Services {
         .await
     }
 
+    /// A member's recurring invoice is finalized once the agreement windows it bills have closed,
+    /// and closes them when it is the first (ADR-0021 §4).
+    async fn close_volume_agreement_windows(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        invoice: &Invoice,
+    ) -> StoreResult<()> {
+        use crate::services::volume_agreements as agreements;
+        if let Some(hold) =
+            agreements::finalization_hold(conn, tenant_id, subscription_id, invoice.invoice_date)
+                .await?
+            && common_clock::now().naive_utc() < hold
+        {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "This invoice waits for its volume agreement to close the period, at {hold} UTC"
+            ))));
+        }
+        agreements::close_windows_tx(
+            conn,
+            self.usage_client.as_ref(),
+            tenant_id,
+            subscription_id,
+            invoice.invoice_date,
+        )
+        .await
+    }
+
     /// A recurring draft of a period a cancellation ended before, emptied and closed: what it
     /// billed the cancellation's final invoice and notes settle. A draft the facts still bill
     /// is left as it is.
@@ -513,6 +542,12 @@ impl Services {
             // Metering read before the lock is served only for the query it answered: a pass that
             // asked for any other (inputs changed since) is priced again before anything is drawn.
             self.ensure_usage_served()?;
+            if invoice.invoice_type == crate::domain::InvoiceType::Recurring
+                && let Some(subscription_id) = invoice.subscription_id
+            {
+                self.close_volume_agreement_windows(conn, tenant_id, subscription_id, &invoice)
+                    .await?;
+            }
             let applied_coupons_amounts = patch.applied_coupons.clone();
             let refreshed_lines_empty = patch.line_items.is_empty();
 

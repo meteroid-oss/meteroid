@@ -122,5 +122,6 @@ pub mod tenant_copy;
 pub mod tenant_modules;
 pub mod tenants;
 pub mod users;
+pub mod volume_agreements;
 pub mod webhooks;
 pub mod webhooks_out;

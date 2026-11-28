@@ -93,7 +93,11 @@ pub type Usage = Vec<(BTreeMap<String, String>, Decimal)>;
 /// Metering read at a pinned instant, keyed by metric and window: `evaluate` only asks whether a
 /// read is there, the pricer reads it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct UsageReads(BTreeMap<UsageRead, Usage>);
+pub struct UsageReads {
+    reads: BTreeMap<UsageRead, Usage>,
+    /// The volume of a read's metric that picks its tiers, for a read pooled by an agreement.
+    bases: BTreeMap<UsageRead, Decimal>,
+}
 
 impl UsageReads {
     pub fn new() -> Self {
@@ -101,21 +105,32 @@ impl UsageReads {
     }
 
     pub fn insert(&mut self, read: UsageRead, usage: Usage) {
-        self.0.insert(read, usage);
+        self.reads.insert(read, usage);
     }
 
     pub fn get(&self, read: &UsageRead) -> Option<&Usage> {
-        self.0.get(read)
+        self.reads.get(read)
     }
 
     pub fn contains(&self, read: &UsageRead) -> bool {
-        self.0.contains_key(read)
+        self.reads.contains_key(read)
+    }
+
+    pub fn insert_basis(&mut self, read: UsageRead, basis: Decimal) {
+        self.bases.insert(read, basis);
+    }
+
+    pub fn basis(&self, read: &UsageRead) -> Option<Decimal> {
+        self.bases.get(read).copied()
     }
 }
 
 impl FromIterator<(UsageRead, Usage)> for UsageReads {
     fn from_iter<I: IntoIterator<Item = (UsageRead, Usage)>>(iter: I) -> Self {
-        Self(iter.into_iter().collect())
+        Self {
+            reads: iter.into_iter().collect(),
+            bases: BTreeMap::new(),
+        }
     }
 }
 

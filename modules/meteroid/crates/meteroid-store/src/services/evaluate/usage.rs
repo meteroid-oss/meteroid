@@ -69,6 +69,8 @@ pub async fn read_usage(
         let usage = read_one(client, loaded, &need.read).await?;
         reads.insert(need.read, usage);
     }
+    let needed: Vec<UsageRead> = needs.iter().map(|need| need.read).collect();
+    crate::services::volume_agreements::serve_bases(client, loaded, &mut reads, &needed).await?;
     Ok(reads)
 }
 
