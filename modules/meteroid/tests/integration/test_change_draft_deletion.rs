@@ -1,56 +1,49 @@
-//! A change's draft adjustment is never deleted, only issued and voided (R-124, R-166): its notes
-//! give back what it replaces, at the change or once the period's draft is issued.
+//! Deleting a change's draft adjustment waives it (R-124, R-166): the change stays, what the draft
+//! bills is forgiven, and its notes stand. Each case runs beside an auto-advancing twin.
 use crate::data::ids::*;
 use crate::harness::{TestEnv, subscription, test_env};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, TimeZone, Utc};
 use common_domain::actor::Actor;
-use common_domain::ids::{InvoiceId, SubscriptionId};
-use meteroid_store::domain::PaginationRequest;
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId};
+use meteroid_store::domain::Invoice;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::InvoiceInterface;
 use rstest::rstest;
 
-async fn started(env: &TestEnv) -> SubscriptionId {
-    subscription()
+fn day(m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(2024, m, d).unwrap()
+}
+
+async fn started(env: &TestEnv, customer: CustomerId, auto_advance: bool) -> SubscriptionId {
+    let builder = subscription()
+        .customer(customer)
         .plan_version(PLAN_VERSION_STARTER_ID)
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .start_date(day(1, 1))
         .on_start()
-        .no_trial()
-        .no_auto_advance()
-        .create(env.services())
-        .await
+        .no_trial();
+    let builder = if auto_advance {
+        builder
+    } else {
+        builder.no_auto_advance()
+    };
+    builder.create(env.services()).await
 }
 
-async fn invoice_of(env: &TestEnv, sub: SubscriptionId, kind: InvoiceType) -> InvoiceId {
-    env.store()
-        .list_invoices(
-            TENANT_ID,
-            None,
-            Some(sub),
-            None,
-            None,
-            None,
-            false,
-            None,
-            vec![],
-            None,
-            PaginationRequest {
-                per_page: Some(100),
-                page: 0,
-            },
-        )
+async fn of_kind(
+    env: &TestEnv,
+    sub: SubscriptionId,
+    kind: InvoiceType,
+    from: NaiveDate,
+) -> Invoice {
+    env.get_invoices(sub)
         .await
-        .unwrap()
-        .items
         .into_iter()
-        .map(|row| row.invoice)
-        .find(|invoice| invoice.invoice_type == kind)
-        .unwrap_or_else(|| panic!("no {kind:?} invoice"))
-        .id
+        .find(|invoice| invoice.invoice_type == kind && invoice.billing_period_start == from)
+        .unwrap_or_else(|| panic!("no {kind:?} invoice from {from}"))
 }
 
-async fn upgrade(env: &TestEnv, sub: SubscriptionId) -> InvoiceId {
+async fn upgrade(env: &TestEnv, sub: SubscriptionId) -> Option<InvoiceId> {
     env.services()
         .apply_plan_change_immediate_at(
             Actor::System,
@@ -58,73 +51,143 @@ async fn upgrade(env: &TestEnv, sub: SubscriptionId) -> InvoiceId {
             TENANT_ID,
             PLAN_VERSION_PRO_ID,
             vec![],
-            NaiveDate::from_ymd_opt(2024, 1, 16).unwrap(),
+            day(1, 16),
         )
         .await
         .expect("upgrade")
         .adjustment_invoice_id
-        .expect("the upgrade bills the new plan")
 }
 
-#[rstest]
-#[tokio::test]
-async fn test_a_change_draft_whose_notes_were_issued_is_voided_not_deleted(
-    #[future] test_env: TestEnv,
-) {
-    let env = test_env.await;
-    let sub = started(&env).await;
-    let january = invoice_of(&env, sub, InvoiceType::Recurring).await;
-    env.services()
-        .finalize_invoice(Actor::System, january, TENANT_ID)
+async fn noted(env: &TestEnv, invoice: InvoiceId) -> i64 {
+    env.store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, invoice)
         .await
-        .expect("January issued");
-    let adjustment = upgrade(&env, sub).await;
-    let notes = env
+        .unwrap()
+        .iter()
+        .map(|note| note.total)
+        .sum()
+}
+
+/// What the subscription's issued invoices bill, less the notes against them.
+async fn billed(env: &TestEnv, sub: SubscriptionId) -> i64 {
+    let mut net = 0;
+    for invoice in env.get_invoices(sub).await {
+        if matches!(
+            invoice.status,
+            InvoiceStatusEnum::Void | InvoiceStatusEnum::Closed | InvoiceStatusEnum::Draft
+        ) {
+            continue;
+        }
+        net += invoice.total - noted(env, invoice.id).await.abs();
+    }
+    net
+}
+
+/// Starter from Jan 1, upgraded to Pro on Jan 16 on both subscriptions; the drafted one's
+/// adjustment is deleted, its January issued first when `january_first`, then February issued.
+async fn waived_beside_twin(env: &TestEnv, january_first: bool) {
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap());
+    let twin = started(env, CUST_SPOTIFY_ID, true).await;
+    let drafted = started(env, CUST_UBER_ID, false).await;
+    let january = of_kind(env, drafted, InvoiceType::Recurring, day(1, 1)).await;
+    if january_first {
+        env.services()
+            .finalize_invoice(Actor::System, january.id, TENANT_ID)
+            .await
+            .expect("January issued");
+    }
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 16, 12, 0, 0).unwrap());
+    let twin_adjustment = upgrade(env, twin).await.expect("the twin's upgrade bills");
+    let adjustment = upgrade(env, drafted)
+        .await
+        .expect("the upgrade bills the new plan");
+    let forgiven = env
         .store()
-        .list_credit_notes_by_invoice_id(TENANT_ID, january)
+        .get_invoice_by_id(TENANT_ID, adjustment)
+        .await
+        .unwrap();
+    assert_eq!(forgiven.status, InvoiceStatusEnum::Draft);
+    assert!(forgiven.total > 0);
+    env.store()
+        .delete_invoice(Actor::User { id: USER_ID }, adjustment, TENANT_ID)
+        .await
+        .expect("waived");
+    let closed = env
+        .store()
+        .get_invoice_by_id(TENANT_ID, adjustment)
+        .await
+        .expect("the waived draft stays");
+    assert_eq!(closed.status, InvoiceStatusEnum::Closed);
+    if !january_first {
+        env.services()
+            .finalize_invoice(Actor::System, january.id, TENANT_ID)
+            .await
+            .expect("January issued");
+    }
+
+    env.run_until(day(2, 4)).await;
+    let february = of_kind(env, drafted, InvoiceType::Recurring, day(2, 1)).await;
+    if february.status == InvoiceStatusEnum::Draft {
+        env.services()
+            .finalize_invoice(Actor::System, february.id, TENANT_ID)
+            .await
+            .expect("February issued");
+    }
+    let twin_february = of_kind(env, twin, InvoiceType::Recurring, day(2, 1)).await;
+
+    let twin_january = of_kind(env, twin, InvoiceType::Recurring, day(1, 1)).await;
+    assert_eq!(
+        noted(env, january.id).await,
+        noted(env, twin_january.id).await,
+        "the upgrade's give-back stands"
+    );
+    let february = env
+        .store()
+        .get_invoice_by_id(TENANT_ID, february.id)
         .await
         .unwrap();
     assert_eq!(
-        notes.len(),
-        1,
-        "the upgrade gives back January's unused days"
+        february.total, twin_february.total,
+        "February bills Pro alone, never the waived stub"
     );
-
-    let refused = env
+    let twin_adjustment = env
         .store()
-        .delete_invoice(Actor::System, adjustment, TENANT_ID)
+        .get_invoice_by_id(TENANT_ID, twin_adjustment)
         .await
-        .expect_err("its notes were issued");
-    assert!(
-        format!("{refused:?}").contains("already in effect"),
-        "{refused:?}"
+        .unwrap();
+    assert_eq!(twin_adjustment.total, forgiven.total);
+    assert_eq!(
+        billed(env, twin).await - billed(env, drafted).await,
+        forgiven.total,
+        "only the waived stub goes unbilled"
     );
-
-    env.services()
-        .finalize_invoice(Actor::System, adjustment, TENANT_ID)
-        .await
-        .expect("issued");
-    let voided = env
+    let refreshed = env
         .store()
-        .void_invoice(Actor::System, adjustment, TENANT_ID)
+        .get_invoice_by_id(TENANT_ID, adjustment)
         .await
-        .expect("voided");
-    assert_eq!(voided.invoice.status, InvoiceStatusEnum::Void);
+        .unwrap();
+    assert_eq!(
+        refreshed.status,
+        InvoiceStatusEnum::Closed,
+        "nothing reissues it"
+    );
 }
 
+/// January issued, so the upgrade's note is issued at the change; its draft is then waived.
+/// Rules: R-124, R-166, R-078
 #[rstest]
 #[tokio::test]
-async fn test_a_change_draft_is_refused_before_its_notes_are_issued(#[future] test_env: TestEnv) {
+async fn test_a_change_draft_deleted_after_its_notes_is_waived(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let sub = started(&env).await;
-    let adjustment = upgrade(&env, sub).await;
-    let refused = env
-        .store()
-        .delete_invoice(Actor::System, adjustment, TENANT_ID)
-        .await
-        .expect_err("January's draft gives back A's unused days once issued");
-    assert!(
-        format!("{refused:?}").contains("already in effect"),
-        "{refused:?}"
-    );
+    waived_beside_twin(&env, true).await;
+}
+
+/// January still a draft: the note comes once January is issued, after the waiver, and matches.
+/// Rules: R-124, R-166, R-078
+#[rstest]
+#[tokio::test]
+async fn test_a_change_draft_deleted_before_its_notes_is_waived(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    waived_beside_twin(&env, false).await;
 }

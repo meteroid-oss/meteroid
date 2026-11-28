@@ -640,11 +640,13 @@ impl From<&OutboxEvent> for Option<Activity> {
                 a
             }
             OutboxEvent::InvoiceClosed(e) => {
+                // A waived draft forgives what it held: the amount stays on record (R-124).
                 let mut a = Activity::new(
                     ActivityType::InvoiceClosed,
                     EntityType::Invoice,
                     e.invoice_id.as_uuid(),
                 )
+                .with_metadata(serde_json::json!({ "total": e.total, "currency": e.currency }))
                 .agg_customer(e.customer_id);
                 if let Some(sub) = e.subscription_id {
                     a = a.agg_subscription(sub);

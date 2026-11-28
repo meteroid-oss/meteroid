@@ -398,8 +398,10 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     },
   })
 
-  // A subscription's recurring draft is closed rather than deleted: its period is never billed.
-  const closesOnDelete = invoice.invoiceType === InvoiceType.RECURRING && !!invoice.subscriptionId
+  // A subscription's recurring or change draft is closed waived rather than deleted (R-124).
+  const waivesChange = invoice.invoiceType === InvoiceType.ADJUSTMENT && !!invoice.subscriptionId
+  const closesOnDelete =
+    waivesChange || (invoice.invoiceType === InvoiceType.RECURRING && !!invoice.subscriptionId)
   const deleteInvoiceMutation = useMutation(deleteInvoice, {
     onSuccess: async () => {
       toast.success(closesOnDelete ? `Invoice closed` : `Invoice deleted`)
@@ -679,11 +681,15 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         onOpenChange={setShowDeleteConfirmation}
         onConfirm={handleDeleteConfirm}
         icon={Trash2}
-        title={closesOnDelete ? 'Close invoice' : 'Delete invoice'}
+        title={
+          waivesChange ? 'Waive this change' : closesOnDelete ? 'Close invoice' : 'Delete invoice'
+        }
         description={
-          closesOnDelete
-            ? 'This draft will be closed and its period will not be billed. This action cannot be undone.'
-            : 'Are you sure you want to delete this draft invoice? This action cannot be undone.'
+          waivesChange
+            ? "The customer isn't billed for this change and keeps the credit its notes gave; the plan change stays. Seats waiting for this invoice's payment never start. This action cannot be undone."
+            : closesOnDelete
+              ? 'This draft will be closed and its period will not be billed. This action cannot be undone.'
+              : 'Are you sure you want to delete this draft invoice? This action cannot be undone.'
         }
       />
 

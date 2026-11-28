@@ -63,11 +63,11 @@ async fn test_slot_transactions_comprehensive() {
     test_min_max_limits(&services, &store, &mut conn).await;
 }
 
-/// Without auto-advance, seats bought leave a draft. Seats active at once are in effect, so their
-/// draft is refused deletion like a change's; seats waiting for its payment never start once it
-/// is deleted, so that draft is deleted (R-124).
+/// Without auto-advance, seats bought leave a draft. Seats active at once stay, their draft closed
+/// waived like a change's; seats waiting for its payment never start once it is deleted, so that
+/// draft is deleted (R-124).
 #[tokio::test]
-async fn test_only_a_seat_purchase_awaiting_payment_has_its_draft_deleted() {
+async fn test_a_seat_purchase_draft_is_waived_unless_its_seats_await_payment() {
     use diesel::{ExpressionMethods, QueryDsl};
     use diesel_async::RunQueryDsl;
     use diesel_models::schema::subscription::dsl;
@@ -83,9 +83,9 @@ async fn test_only_a_seat_purchase_awaiting_payment_has_its_draft_deleted() {
     )
     .await;
     let (services, store) = (setup.services.clone(), setup.store.clone());
-    for (mode, deleted) in [
-        (SlotUpgradeBillingMode::Optimistic, false),
-        (SlotUpgradeBillingMode::OnInvoicePaid, true),
+    for (mode, waived) in [
+        (SlotUpgradeBillingMode::Optimistic, true),
+        (SlotUpgradeBillingMode::OnInvoicePaid, false),
     ] {
         let (subscription_id, slot_component_id) = create_subscription_with_slots(
             &services,
@@ -121,10 +121,16 @@ async fn test_only_a_seat_purchase_awaiting_payment_has_its_draft_deleted() {
                 .status,
             meteroid_store::domain::enums::InvoiceStatusEnum::Draft
         );
-        let result = store
+        store
             .delete_invoice(common_domain::actor::Actor::System, draft, TENANT_ID)
-            .await;
-        assert_eq!(result.is_ok(), deleted, "{mode:?}: {result:?}");
+            .await
+            .unwrap_or_else(|e| panic!("{mode:?}: {e:?}"));
+        let left = store.get_invoice_by_id(TENANT_ID, draft).await;
+        assert_eq!(
+            left.ok().map(|invoice| invoice.status),
+            waived.then_some(meteroid_store::domain::enums::InvoiceStatusEnum::Closed),
+            "{mode:?}"
+        );
     }
 }
 

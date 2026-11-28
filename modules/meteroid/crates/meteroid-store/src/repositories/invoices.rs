@@ -940,11 +940,17 @@ impl InvoiceInterface for Store {
                     ));
                 }
 
-                // A subscription's recurring draft is closed, never numbered nor sent: its period is
-                // never billed again, the engine reading its lines as voided (R-124).
-                if invoice.invoice_type == InvoiceType::Recurring
-                    && invoice.subscription_id.is_some()
-                {
+                // A subscription's recurring draft, or a change's adjustment draft, is closed waived:
+                // never numbered nor sent, its lines read as voided, so never billed again (R-124).
+                let waives = invoice.subscription_id.is_some()
+                    && match invoice.invoice_type {
+                        InvoiceType::Recurring => true,
+                        InvoiceType::Adjustment => !SlotTransactionRow::holds_pending_seats(conn, id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?,
+                        _ => false,
+                    };
+                if waives {
                     // Its lines would forgive usage that moved since they were computed (R-143).
                     if claims_moved {
                         bail!(StoreError::Conflict(
@@ -965,21 +971,6 @@ impl InvoiceInterface for Store {
                         .internal
                         .record_outbox_batch_tx(conn, tenant_id, actor, vec![event])
                         .await;
-                }
-
-                // What it bills is in effect, its other side credited on notes now or later:
-                // deleting would forgive it unrecorded. Void it instead (R-124).
-                if invoice.invoice_type == InvoiceType::Adjustment
-                    && invoice.subscription_id.is_some()
-                    && !SlotTransactionRow::holds_pending_seats(conn, id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                {
-                    bail!(StoreError::InvalidArgument(
-                        "This adjustment bills a subscription change already in effect: finalize \
-                         it, then void it to forgive what it bills"
-                            .into(),
-                    ));
                 }
 
                 // Snapshot before the row is gone — the event payload is the only record left.

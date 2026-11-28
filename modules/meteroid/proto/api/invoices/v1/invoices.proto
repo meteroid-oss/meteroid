@@ -262,6 +262,8 @@ service InvoicesService {
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
   rpc UpdateInvoice(UpdateInvoiceRequest) returns (UpdateInvoiceResponse) {}
   rpc PreviewInvoiceUpdate(PreviewInvoiceUpdateRequest) returns (PreviewInvoiceUpdateResponse) {}
+  // A subscription's recurring or change draft is closed waived: never billed; a change stays in
+  // effect and keeps the credit its notes gave. Drafts of seats awaiting their payment, and others, are deleted.
   rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
   rpc VoidInvoice(VoidInvoiceRequest) returns (VoidInvoiceResponse) {}
   rpc RegenerateInvoice(RegenerateInvoiceRequest) returns (RegenerateInvoiceResponse) {}
