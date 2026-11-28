@@ -54,8 +54,7 @@ use uuid::Uuid;
 
 /// Breakdowns and grouped usage list at most this many entries.
 const TOP_GROUPS: usize = 5;
-/// Below this much of the period, a linear projection says more about noise than about usage.
-pub const MIN_PROJECTION_ELAPSED_SECONDS: i64 = 3600;
+pub use crate::domain::usage_costs::MIN_PROJECTION_ELAPSED_SECONDS;
 
 fn currency_key(currency: &str) -> String {
     currency.trim().to_uppercase()

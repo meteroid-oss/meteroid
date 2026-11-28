@@ -3,9 +3,10 @@ use crate::domain::billable_metrics::SegmentationMatrix;
 use crate::domain::credit_outlook::UpcomingChange;
 use crate::domain::enums::SubscriptionStatusEnum;
 use crate::domain::usage_costs::{
-    CostGranularity, CostUnit, MetricEventCost, MetricEventsPage, MetricRef, MetricRunningCost,
-    NoBillingPeriod, RunningTotal, UsageCost, UsageCostRow, UsageOwner, WalletDailyUsage,
-    WalletDailyUsageCost, WalletUsageSpan,
+    CostGranularity, CostUnit, EstimatedEvent, EventEstimate, MetricEstimate, MetricEventCost,
+    MetricEventsPage, MetricProjection, MetricRef, MetricRunningCost, NoBillingPeriod,
+    RunningTotal, UsageCost, UsageCostRow, UsageOwner, WalletDailyUsage, WalletDailyUsageCost,
+    WalletUsageSpan, adds_up, project, projection_factor,
 };
 use crate::domain::{
     BillableMetric, LineItem, SubscriptionDetails, UsagePeriod, UsagePricingModel,
@@ -173,7 +174,11 @@ fn event_cost(
             let dimensions = metric_dimensions(&window.metric)
                 .into_iter()
                 .filter_map(|key| {
-                    let value = event.properties.get(&key)?.clone();
+                    let value = event
+                        .properties
+                        .get(&key)
+                        .filter(|v| !v.is_empty())?
+                        .clone();
                     Some((key, value))
                 })
                 .collect::<HashMap<_, _>>();
@@ -201,6 +206,126 @@ fn event_cost(
         _ => return None,
     };
     Some(cost_in(window, amount))
+}
+
+/// Whether the event falls in `window` and its metric reads it.
+fn takes_in(window: &PlannedWindow, code: &str, event: &MetricEvent) -> bool {
+    let metric = &window.metric;
+    metric.code == code
+        && window.start <= event.timestamp
+        && event.timestamp < window.end
+        && metric
+            .usage_scope
+            .contains(&event.properties, event.timestamp)
+        && metric
+            .filters
+            .as_ref()
+            .is_none_or(|filters| filters.admits(&event.properties))
+        && segmentation_admits(metric, &event.properties)
+}
+
+/// `groups` with the event's `units` added to its group, as metering would group it.
+/// The group metering reads an event in: its usage group, rated dimensions and the keys of a
+/// complete segmentation matrix, empty values left out.
+fn metered_group(
+    metric: &BillableMetric,
+    properties: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let matrix_keys = metric
+        .complete_segmentation_matrix()
+        .map(SegmentationMatrix::keys)
+        .unwrap_or_default();
+    metric
+        .usage_group_key
+        .iter()
+        .chain(&metric.rated_dimensions)
+        .map(String::as_str)
+        .chain(matrix_keys)
+        .filter_map(|key| {
+            let value = properties.get(key).filter(|value| !value.is_empty())?;
+            Some((key.to_owned(), value.clone()))
+        })
+        .collect()
+}
+
+/// The usage so far of the group metering would read the event in.
+fn group_usage(groups: &[GroupedUsageData], dimensions: &HashMap<String, String>) -> Decimal {
+    groups
+        .iter()
+        .filter(|group| &group.dimensions == dimensions)
+        .map(|group| group.value)
+        .sum()
+}
+
+fn with_event_units(
+    window: &PlannedWindow,
+    groups: &[GroupedUsageData],
+    event: &MetricEvent,
+    units: Decimal,
+) -> Vec<GroupedUsageData> {
+    let dimensions = metered_group(&window.metric, &event.properties);
+    let mut groups = groups.to_vec();
+    match groups
+        .iter_mut()
+        .find(|group| group.dimensions == dimensions)
+    {
+        Some(group) => group.value += units,
+        None => groups.push(GroupedUsageData {
+            value: units,
+            dimensions,
+        }),
+    }
+    groups
+}
+
+/// A window's usage at its pace until its end, and its price.
+struct WindowProjection {
+    quantity: Decimal,
+    amount: Decimal,
+}
+
+/// The index of `window`'s metric in `metrics`, added when absent.
+fn running_entry(metrics: &mut Vec<MetricRunningCost>, window: &PlannedWindow) -> usize {
+    if let Some(index) = metrics.iter().position(|m| m.metric.id == window.metric.id) {
+        return index;
+    }
+    metrics.push(MetricRunningCost {
+        metric: window.metric.clone(),
+        costs: Vec::new(),
+        projected: Some(MetricProjection {
+            quantity: adds_up(&window.metric).then_some(Decimal::ZERO),
+            costs: Vec::new(),
+        }),
+    });
+    metrics.len() - 1
+}
+
+fn add_cost(costs: &mut Vec<UsageCost>, cost: UsageCost) {
+    match costs
+        .iter_mut()
+        .find(|known| known.currency == cost.currency)
+    {
+        Some(known) => known.amount += cost.amount,
+        None => costs.push(cost),
+    }
+}
+
+/// `groups`, read up to `until`, at the pace they would keep until the window's end.
+fn projected_groups(
+    window: &PlannedWindow,
+    groups: &[GroupedUsageData],
+    until: NaiveDateTime,
+) -> Option<Vec<GroupedUsageData>> {
+    let factor = projection_factor(window.start, window.end, until)?;
+    groups
+        .iter()
+        .map(|group| {
+            Some(GroupedUsageData {
+                value: project(&window.metric, group.value, factor)?,
+                dimensions: group.dimensions.clone(),
+            })
+        })
+        .collect()
 }
 
 /// `amount` in what `window` bills: its credit unit when credit-priced, else its currency.
@@ -590,9 +715,10 @@ impl ServicesEdge {
 
         let usage_client = &self.services.usage_client;
         let pins = &pins;
+        let started = |window: &&PlannedWindow| window.end.min(computed_at) > window.start;
         let reads = windows
             .iter()
-            .filter(|window| window.end.min(computed_at) > window.start)
+            .filter(started)
             .map(|window| async move {
                 let until = window.end.min(computed_at);
                 let usage = usage_client
@@ -610,41 +736,178 @@ impl ServicesEdge {
                     .get(&(window.subscription_id, window.period.start))
                     .cloned()
                     .unwrap_or_default();
+                let in_major = |minor| Decimal::new(minor, u32::from(window.precision));
+                let projected = projected_groups(window, &usage.data, until).and_then(|groups| {
+                    let quantity = groups.iter().map(|group| group.value).sum::<Decimal>();
+                    price_window_groups(window, window.end, groups, &pinned)
+                        .inspect_err(|e| {
+                            log::warn!("Projection of {} not priced: {e:?}", window.metric.id)
+                        })
+                        .ok()
+                        .map(|minor| WindowProjection {
+                            quantity,
+                            amount: in_major(minor),
+                        })
+                });
                 let minor = price_window_groups(window, until, usage.data, &pinned)?;
-                Ok::<_, Report<StoreError>>((
-                    window,
-                    Decimal::new(minor, u32::from(window.precision)),
-                ))
+                Ok::<_, Report<StoreError>>((window, in_major(minor), projected))
             })
             .collect::<Vec<_>>();
-        let priced: Vec<(&PlannedWindow, Decimal)> = stream::iter(reads)
+        let priced: Vec<(&PlannedWindow, Decimal, Option<WindowProjection>)> = stream::iter(reads)
             .buffered(USAGE_FETCH_CONCURRENCY)
             .try_collect()
             .await?;
 
         let mut metrics: Vec<MetricRunningCost> = Vec::new();
-        for (window, amount) in priced {
+        let indices: Vec<usize> = priced
+            .iter()
+            .map(|(window, _, _)| running_entry(&mut metrics, window))
+            .collect();
+        for window in windows.iter().filter(|window| !started(window)) {
+            let index = running_entry(&mut metrics, window);
+            metrics[index].projected = None;
+        }
+        // A component and an add-on pricing one metric read the same usage: it counts once.
+        let mut counted = HashSet::new();
+        for ((window, amount, projected), index) in priced.into_iter().zip(indices) {
+            let metric = &mut metrics[index];
+            add_cost(&mut metric.costs, cost_in(window, amount));
+            let first_read = counted.insert((window.metric.id, window.start, window.end));
+            metric.projected = match (metric.projected.take(), projected) {
+                (Some(mut so_far), Some(window_projection)) => {
+                    if first_read {
+                        so_far.quantity = so_far
+                            .quantity
+                            .and_then(|sum| sum.checked_add(window_projection.quantity));
+                    }
+                    add_cost(&mut so_far.costs, cost_in(window, window_projection.amount));
+                    Some(so_far)
+                }
+                _ => None,
+            };
+        }
+        Ok(RunningTotal {
+            computed_at,
+            metrics,
+        })
+    }
+
+    /// What `event` would add to the subscription's next invoice, with its usage so far, were it
+    /// ingested now: by each metric of its code whose window, usage scope, filters and
+    /// segmentation take it in, as the invoice prices it. Nothing is written.
+    pub async fn estimate_event(
+        &self,
+        details: &SubscriptionDetails,
+        event: EstimatedEvent,
+    ) -> StoreResult<EventEstimate> {
+        let now = common_clock::now().naive_utc();
+        let computed_at = now.with_nanosecond(0).unwrap_or(now);
+        let tenant_id = details.subscription.tenant_id;
+        let customer_id = details.subscription.customer_id;
+        let code = event.code;
+        let event = MetricEvent {
+            id: String::new(),
+            timestamp: event.timestamp,
+            properties: event.properties,
+        };
+        let (windows, pins) = {
+            let mut conn = self.store.get_conn().await?;
+            let windows: Vec<PlannedWindow> = self
+                .next_invoice_windows(&mut conn, details)
+                .await?
+                .into_iter()
+                .filter(|window| takes_in(window, &code, &event))
+                .collect();
+            let pins = if windows.is_empty() {
+                HashMap::new()
+            } else {
+                draft_pinned_prices(&mut conn, tenant_id, customer_id).await?
+            };
+            (windows, pins)
+        };
+
+        let usage_client = &self.services.usage_client;
+        let (event, pins) = (&event, &pins);
+        let reads = windows
+            .iter()
+            .map(|window| async move {
+                // Metering counts an event without the amount it sums as nothing.
+                let Some(units) = event_units(&window.metric, event)
+                    .or_else(|| adds_up(&window.metric).then_some(Decimal::ZERO))
+                else {
+                    return Ok::<_, Report<StoreError>>((window, None));
+                };
+                let until = computed_at.max(event.timestamp).min(window.end);
+                let usage = if until > window.start {
+                    usage_client
+                        .fetch_usage(
+                            &tenant_id,
+                            &customer_id,
+                            &window.metric,
+                            UsagePeriod {
+                                start: window.start,
+                                end: until,
+                            },
+                        )
+                        .await?
+                        .data
+                } else {
+                    Vec::new()
+                };
+                let pinned = pins
+                    .get(&(window.subscription_id, window.period.start))
+                    .cloned()
+                    .unwrap_or_default();
+                let quantity = billed_units(&window.metric, units);
+                let so_far = group_usage(&usage, &metered_group(&window.metric, &event.properties));
+                // Positive-only prices make an event's share non-linear once its group is negative.
+                let linear = so_far >= Decimal::ZERO && so_far + units >= Decimal::ZERO;
+                let exact = linear
+                    .then(|| event_cost(window, &pinned, event, quantity))
+                    .flatten();
+                let fee = match exact {
+                    Some(cost) => cost,
+                    None => {
+                        let with_event = with_event_units(window, &usage, event, units);
+                        let before = price_window_groups(window, until, usage, &pinned)?;
+                        let after = price_window_groups(window, until, with_event, &pinned)?;
+                        let added = after
+                            .checked_sub(before)
+                            .ok_or_else(|| invalid("pending usage exceeds the supported range"))?;
+                        cost_in(window, Decimal::new(added, u32::from(window.precision)))
+                    }
+                };
+                Ok((window, Some((quantity, fee))))
+            })
+            .collect::<Vec<_>>();
+        let priced: Vec<(&PlannedWindow, Option<(Decimal, UsageCost)>)> = stream::iter(reads)
+            .buffered(USAGE_FETCH_CONCURRENCY)
+            .try_collect()
+            .await?;
+
+        let mut metrics: Vec<MetricEstimate> = Vec::new();
+        for (window, estimate) in priced {
             let index = match metrics.iter().position(|m| m.metric.id == window.metric.id) {
                 Some(index) => index,
                 None => {
-                    metrics.push(MetricRunningCost {
+                    metrics.push(MetricEstimate {
                         metric: window.metric.clone(),
-                        costs: Vec::new(),
+                        quantity: estimate.as_ref().map(|(quantity, _)| *quantity),
+                        fees: estimate.is_some().then(Vec::new),
                     });
                     metrics.len() - 1
                 }
             };
-            let cost = cost_in(window, amount);
-            let costs = &mut metrics[index].costs;
-            match costs
-                .iter_mut()
-                .find(|known| known.currency == cost.currency)
-            {
-                Some(known) => known.amount += cost.amount,
-                None => costs.push(cost),
+            let metric = &mut metrics[index];
+            match (estimate, metric.fees.as_mut()) {
+                (Some((_, fee)), Some(fees)) => add_cost(fees, fee),
+                _ => {
+                    metric.quantity = None;
+                    metric.fees = None;
+                }
             }
         }
-        Ok(RunningTotal {
+        Ok(EventEstimate {
             computed_at,
             metrics,
         })
@@ -1641,6 +1904,126 @@ mod tests {
 
     fn amounts(days: &[DailyCost]) -> Vec<i64> {
         days.iter().map(|day| day.amount_minor).collect()
+    }
+
+    fn projected_price(window: &PlannedWindow, used: Decimal, until: NaiveDateTime) -> Option<i64> {
+        let groups = projected_groups(window, &usage(used), until)?;
+        Some(price_window_groups(window, window.end, groups, &PinnedPrices::default()).unwrap())
+    }
+
+    fn event(properties: &[(&str, &str)]) -> MetricEvent {
+        MetricEvent {
+            id: String::new(),
+            timestamp: midnight(10),
+            properties: properties
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn an_estimate_crossing_a_tier_adds_what_the_period_price_gains() {
+        let window = june_window(UsagePricingModel::Tiered {
+            tiers: two_tiers(),
+            block_size: None,
+        });
+        let event = event(&[("n", "20")]);
+        let units = event_units(&window.metric, &event).unwrap();
+        let with_event = with_event_units(&window, &usage(dec!(90)), &event, units);
+        // 10 more at 1.00 to fill the first tier, 10 at 0.50.
+        assert_eq!(period_price(&window, dec!(90)), 9_000);
+        assert_eq!(
+            price_window_groups(&window, window.end, with_event, &PinnedPrices::default()).unwrap(),
+            10_500
+        );
+        assert!(takes_in(&window, "api_calls", &event));
+        assert!(!takes_in(&window, "other_code", &event));
+    }
+
+    #[test]
+    fn an_estimated_event_lands_in_its_own_group() {
+        let mut window = june_window(UsagePricingModel::PerUnit { rate: dec!(1) });
+        window.metric.usage_group_key = Some("region".to_owned());
+        let groups = vec![GroupedUsageData {
+            value: dec!(5),
+            dimensions: HashMap::from([("region".to_owned(), "eu".to_owned())]),
+        }];
+        let with_event = with_event_units(&window, &groups, &event(&[("region", "us")]), dec!(2));
+        assert_eq!(with_event.len(), 2);
+        let same = with_event_units(&window, &groups, &event(&[("region", "eu")]), dec!(2));
+        assert_eq!(same.len(), 1);
+        assert_eq!(same[0].value, dec!(7));
+    }
+
+    #[test]
+    fn an_incomplete_matrix_does_not_split_the_estimated_event_from_its_usage() {
+        use crate::domain::billable_metrics::Dimension;
+        let mut window = june_window(UsagePricingModel::Tiered {
+            tiers: two_tiers(),
+            block_size: None,
+        });
+        window.metric.segmentation_matrix = Some(SegmentationMatrix::Single(Dimension {
+            key: "region".to_owned(),
+            values: Vec::new(),
+        }));
+        let event = event(&[("n", "20"), ("region", "us")]);
+        assert!(metered_group(&window.metric, &event.properties).is_empty());
+        let with_event = with_event_units(&window, &usage(dec!(90)), &event, dec!(20));
+        assert_eq!(
+            price_window_groups(&window, window.end, with_event, &PinnedPrices::default()).unwrap(),
+            10_500
+        );
+    }
+
+    #[test]
+    fn a_group_reads_its_usage_without_empty_values() {
+        let mut window = june_window(UsagePricingModel::PerUnit { rate: dec!(1) });
+        window.metric.usage_group_key = Some("region".to_owned());
+        let event = event(&[("region", "")]);
+        let group = metered_group(&window.metric, &event.properties);
+        assert!(group.is_empty());
+        assert_eq!(group_usage(&usage(dec!(-3)), &group), dec!(-3));
+    }
+
+    #[test]
+    fn a_metric_filter_needs_its_property_even_negated() {
+        use crate::domain::billable_metrics::{MetricFilter, MetricFilterOp, MetricFilters};
+        let mut window = june_window(UsagePricingModel::PerUnit { rate: dec!(1) });
+        window.metric.filters = Some(MetricFilters(vec![MetricFilter {
+            property: "tier".to_owned(),
+            op: MetricFilterOp::NotIn,
+            values: vec!["free".to_owned()],
+        }]));
+        assert!(takes_in(&window, "api_calls", &event(&[("tier", "pro")])));
+        assert!(!takes_in(&window, "api_calls", &event(&[("tier", "free")])));
+        assert!(!takes_in(&window, "api_calls", &event(&[])));
+    }
+
+    #[test]
+    fn a_projection_prices_the_usage_at_its_pace_through_the_tiers() {
+        let window = june_window(UsagePricingModel::Tiered {
+            tiers: two_tiers(),
+            block_size: None,
+        });
+        // 60 units in 10 of 30 days head for 180: 100 at 1.00 and 80 at 0.50, not 3 × 60.00.
+        assert_eq!(
+            projected_price(&window, dec!(60), midnight(11)),
+            Some(14_000)
+        );
+        assert_eq!(projected_price(&window, dec!(60), window.end), Some(6_000));
+    }
+
+    #[test]
+    fn a_max_is_projected_as_it_stands_and_nothing_too_early() {
+        let mut window = june_window(UsagePricingModel::PerUnit { rate: dec!(1) });
+        assert_eq!(
+            projected_price(&window, dec!(5), window.start + Duration::minutes(59)),
+            None
+        );
+        assert_eq!(projected_price(&window, dec!(5), midnight(2)), None);
+        window.metric.aggregation_type = BillingMetricAggregateEnum::Max;
+        assert_eq!(projected_price(&window, dec!(5), midnight(11)), Some(500));
     }
 
     #[test]

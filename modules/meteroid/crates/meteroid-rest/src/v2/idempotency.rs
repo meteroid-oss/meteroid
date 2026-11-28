@@ -1,4 +1,4 @@
-//! `Idempotency-Key` on every v2 `POST` but the entitlement check ([`reads_only`]) and on the
+//! `Idempotency-Key` on every v2 `POST` but the reads ([`reads_only`]) and on the
 //! `PATCH`es of [`KEYED_PATCHES`] (ADR-0013 §3), on v1's `api_idempotency_key` claims: the first
 //! call with a key runs and its response is kept; a retry with the same request replays
 //! it (`Idempotent-Replayed: true`), with its status, its content type and its body as they were;
@@ -154,9 +154,10 @@ fn takes_key(req: &Request<Body>) -> bool {
     }
 }
 
-/// A POST that only reads: the entitlement check. It takes no key, so no answer is kept.
+/// A POST that only reads: the entitlement check, a usage estimate. It takes no key, so no
+/// answer is kept.
 pub fn reads_only(path: &str) -> bool {
-    path.ends_with("/entitlements/check")
+    path.ends_with("/entitlements/check") || path.ends_with("/usage/estimate")
 }
 
 pub async fn idempotency(

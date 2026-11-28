@@ -10,11 +10,12 @@
 //! their currency or credit unit; an event's cost, a share of a minor unit, is a decimal string
 //! in the major unit.
 use crate::AppState;
-use crate::usage::model::{UsageResponse, sum_costs};
+use crate::usage::model::UsageResponse;
 use crate::usage::router::{current_period_usage, fetch_usage_for_metrics};
 use crate::usage_costs::model::{UsageCost as V1Cost, UsageCostUnit, decode_cursor, encode_cursor};
 use crate::v2::documents::filter_not_found;
-use crate::v2::extract::{Path, Query};
+use crate::v2::events::event_properties;
+use crate::v2::extract::{Body, Path, Query};
 use crate::v2::ids;
 use crate::v2::pagination::PageQuery;
 use crate::v2::problem::Problem;
@@ -28,7 +29,8 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_rest_common::datetime::ApiDateTime;
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::usage_costs::{
-    CostGranularity, CostUnit, MetricRef as MetricNamed, UsageCost as DomainCost, UsageOwner,
+    CostGranularity, CostUnit, EstimatedEvent, MetricRef as MetricNamed, UsageCost as DomainCost,
+    UsageOwner,
 };
 use meteroid_store::domain::{BillableMetric, UsagePeriod, unattributed_default_range};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
@@ -89,6 +91,19 @@ pub struct MetricUsage {
     /// invoice, before discounts and credits; empty while it bills nothing (a free trial).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub costs: Option<Vec<UsageAmount>>,
+    /// Beta, on a subscription's current period only: `quantity` at its pace so far until the
+    /// period's end. A sum or a count grows linearly; a max, latest, mean or unique count is
+    /// projected as it stands. Each usage window is projected to its own end (a plan change or a
+    /// scheduled stop ends one), so this is what the invoice would bill. Absent until an hour and
+    /// 5% of every window have elapsed, and while a window has not started.
+    #[schema(value_type = Option<String>, format = "decimal")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_quantity: Option<Decimal>,
+    /// Beta: what `costs` would reach at that pace, each usage window priced whole as its invoice
+    /// prices it (tiers and volumes included). Usage priced in credit counts its credits: the
+    /// money billed once the wallet runs out is not projected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_costs: Option<Vec<UsageAmount>>,
 }
 
 /// Usage by metric over `[from, to)`.
@@ -108,6 +123,9 @@ pub struct Usage {
     /// Beta: the metrics' costs added up, per currency or credit unit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub totals: Option<Vec<UsageAmount>>,
+    /// Beta: the metrics' projected costs added up; absent unless every metric has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_totals: Option<Vec<UsageAmount>>,
 }
 
 /// How long a cost bucket is: an hour, a day or a calendar month, cut at UTC boundaries.
@@ -188,6 +206,59 @@ pub struct EventCost {
     /// The credit unit, for usage priced in credit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credit_unit: Option<CreditUnitRef>,
+}
+
+/// An event to price without ingesting it.
+#[derive(Deserialize, ToSchema, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct EstimateUsage {
+    /// The event code (`api_calls`): every metric of this code the subscription bills prices it.
+    pub code: String,
+    /// RFC 3339, within the subscription's current period; now when left out.
+    #[schema(example = "2026-01-15T10:30:00Z", format = DateTime)]
+    #[serde(default)]
+    pub timestamp: Option<String>,
+    /// As ingested: what metrics filter, group and aggregate by.
+    #[schema(
+        value_type = HashMap<String, crate::v2::events::EventPropertyValue>,
+        example = json!({"region": "us-east-1", "tokens": 1200})
+    )]
+    #[serde(default)]
+    pub properties: HashMap<String, serde_json::Value>,
+}
+
+/// What one metric would bill for the event.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct MetricFeeEstimate {
+    /// The metric.
+    pub metric: MetricRef,
+    /// The metric's name.
+    pub name: String,
+    /// The billed units the event adds (0 without the property it sums, as metering counts it);
+    /// absent when the metric does not add events up (max, latest, mean, unique count).
+    #[schema(value_type = Option<String>, format = "decimal")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantity: Option<Decimal>,
+    /// What it adds to the next invoice, by currency or credit unit; absent with `quantity`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fees: Option<Vec<EventCost>>,
+}
+
+/// What an event would add to the subscription's next invoice, were it ingested now.
+#[derive(Serialize, ToSchema, Debug, Clone, PartialEq)]
+pub struct UsageEstimate {
+    /// The time the event is priced at.
+    pub timestamp: ApiDateTime,
+    /// When the usage it adds to was read.
+    pub computed_at: ApiDateTime,
+    /// The metrics that would bill it; empty when none would: filtered out, outside the
+    /// subscription's scope, or nothing invoiced (a subscription cancelled or paused). Empty means
+    /// "not billed", not "free".
+    pub metrics: Vec<MetricFeeEstimate>,
+    /// The metrics' fees added up, per currency or credit unit.
+    pub totals: Vec<EventCost>,
+    /// False when a metric's fee could not be estimated: `totals` then leaves it out.
+    pub complete: bool,
 }
 
 /// A usage event a metric read, as metering keeps it.
@@ -503,6 +574,10 @@ async fn render(
             Some(costs) => Some(denominations.all(costs).await?),
             None => None,
         };
+        let projected_costs = match &metric.projected_costs {
+            Some(costs) => Some(denominations.all(costs).await?),
+            None => None,
+        };
         metrics.push(MetricUsage {
             metric: refs.metric(metric.metric_id),
             name: metric.metric_name.clone(),
@@ -520,9 +595,17 @@ async fn render(
                 })
                 .collect(),
             costs,
+            projected_quantity: metric
+                .projected_value
+                .map(|value| value.round_dp(4).normalize()),
+            projected_costs,
         });
     }
     let totals = match &reading.totals {
+        Some(totals) => Some(denominations.all(totals).await?),
+        None => None,
+    };
+    let projected_totals = match &reading.projected_totals {
         Some(totals) => Some(denominations.all(totals).await?),
         None => None,
     };
@@ -532,6 +615,7 @@ async fn render(
         metrics,
         computed_at: reading.computed_at,
         totals,
+        projected_totals,
     })
 }
 
@@ -561,6 +645,7 @@ async fn usage_over(
         usage,
         computed_at: None,
         totals: None,
+        projected_totals: None,
     };
     render(state, tenant_id, &reading, from.into(), to.into()).await
 }
@@ -911,7 +996,9 @@ pub async fn get_unattributed_usage(
 /// Its usage of each metric it bills over `[from, to)`. Left out, the range is its current
 /// period, and the reading then carries its running total (beta): what each metric's usage adds
 /// so far to the next invoice, and their sum, before discounts and credits, shared for up to 30
-/// seconds (`computed_at`). Counts towards the usage cost reads' rate limit.
+/// seconds (`computed_at`), with where each would end the period at its pace so far
+/// (`projected_quantity`, `projected_costs`, `projected_totals`). Counts towards the usage cost
+/// reads' rate limit.
 #[utoipa::path(
     get,
     tag = "Subscriptions",
@@ -957,18 +1044,7 @@ pub async fn get_subscription_usage(
                 .invalidate(&(tenant_id, subscription_id))
                 .await;
         }
-        let mut reading = (*current).clone();
-        if let Some(id) = metric {
-            reading.usage.retain(|usage| usage.metric_id == id);
-            if reading.totals.is_some() {
-                reading.totals = Some(sum_costs(
-                    reading
-                        .usage
-                        .iter()
-                        .flat_map(|usage| usage.costs.iter().flatten()),
-                ));
-            }
-        }
+        let mut reading = current.only_metric(metric);
         if !crate::usage_costs::router::usage_costs_open(&state, &auth).await {
             reading = reading.without_costs();
         }
@@ -1012,6 +1088,149 @@ pub async fn get_subscription_usage(
         )
         .await?,
     ))
+}
+
+/// Estimate an event's fee
+///
+/// What the event would add to the subscription's next invoice if it were ingested now, given
+/// the period's usage so far, written nowhere. Each metric of its code the subscription bills
+/// prices it when its window, usage scope, filters and segmentation take the event in. A unit
+/// price or a rate by dimension gives the event's exact share; any other price (tiers, volume,
+/// packages, a rounded unit conversion, capacity overage) gives what the period's price gains
+/// with it. Before discounts, credits and tax. Gated and rate limited as the usage costs.
+#[utoipa::path(
+    post,
+    tag = "Subscriptions",
+    path = "/api/v2/subscriptions/{id_or_external_id}/usage/estimate",
+    params(("id_or_external_id" = String, Path, description = "Subscription id or external id")),
+    request_body = EstimateUsage,
+    responses(
+        (status = 200, description = "What the event would bill", body = UsageEstimate),
+        (status = 403, description = "Usage costs are not enabled for the organization", body = Problem, content_type = "application/problem+json"),
+        (status = 404, description = "The subscription is not found", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "The event is refused: no metric the subscription bills reads its code, or it falls outside the current period", body = Problem, content_type = "application/problem+json"),
+        (status = 429, description = "Too many usage cost reads", body = Problem, content_type = "application/problem+json"),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn estimate_subscription_usage(
+    Extension(auth): Extension<AuthorizedAsTenant>,
+    State(state): State<AppState>,
+    Path(id_or_external_id): Path<String>,
+    Body(request): Body<EstimateUsage>,
+) -> Result<Json<UsageEstimate>, Problem> {
+    open_costs(&state, &auth).await?;
+    let tenant_id = auth.tenant_id;
+    let subscription_id = ids::subscription_id(&state, tenant_id, &id_or_external_id).await?;
+    let code = request.code.trim().to_owned();
+    if code.is_empty() {
+        return Err(Problem::field(
+            "/code",
+            "required",
+            "The event code is required",
+        ));
+    }
+    let properties = event_properties(request.properties, "/properties")
+        .map_err(|error| Problem::field(error.path, &error.code, error.message))?;
+    let details = state
+        .store
+        .get_subscription_details(tenant_id, subscription_id)
+        .await?;
+    let billed_code = details.metrics.iter().any(|metric| metric.code == code);
+    let timestamp = match request.timestamp.as_deref() {
+        Some(raw) => moment(raw, "/timestamp")?,
+        None => common_clock::now().naive_utc(),
+    };
+    let period_start = details
+        .subscription
+        .current_period_start
+        .and_time(NaiveTime::MIN);
+    let period_end = details
+        .subscription
+        .current_period_end
+        .map(|end| end.and_time(NaiveTime::MIN));
+    if timestamp < period_start || period_end.is_some_and(|end| timestamp >= end) {
+        return Err(Problem::field(
+            "/timestamp",
+            "invalid",
+            "The event falls outside the subscription's current period",
+        ));
+    }
+
+    let estimate = state
+        .services
+        .estimate_event(
+            &details,
+            EstimatedEvent {
+                code,
+                timestamp,
+                properties,
+            },
+        )
+        .await?;
+    // A metric a plan change removed still bills the next invoice, so only an empty answer is refused.
+    if estimate.metrics.is_empty() && !billed_code {
+        return Err(Problem::field(
+            "/code",
+            "invalid",
+            "No metric the subscription bills reads this event code",
+        ));
+    }
+    let ids = ReferenceIds {
+        metrics: estimate.metrics.iter().map(|m| m.metric.id).collect(),
+        credit_unit_codes: estimate
+            .metrics
+            .iter()
+            .flat_map(|m| m.fees.iter().flatten())
+            .filter(|fee| fee.unit == CostUnit::CreditUnit)
+            .map(|fee| fee.currency.clone())
+            .collect(),
+        ..ReferenceIds::default()
+    };
+    let refs = Refs::load(&state.store, tenant_id, &ids).await?;
+    let event_cost = |cost: &DomainCost| {
+        let credit = cost.unit == CostUnit::CreditUnit;
+        EventCost {
+            amount: cost.amount.normalize(),
+            currency: (!credit).then(|| cost.currency.clone()),
+            credit_unit: credit
+                .then(|| refs.credit_unit_coded(&cost.currency))
+                .flatten(),
+        }
+    };
+    let mut totals: Vec<DomainCost> = Vec::new();
+    for fee in estimate
+        .metrics
+        .iter()
+        .flat_map(|m| m.fees.iter().flatten())
+    {
+        match totals
+            .iter_mut()
+            .find(|total| total.currency == fee.currency && total.unit == fee.unit)
+        {
+            Some(total) => total.amount += fee.amount,
+            None => totals.push(fee.clone()),
+        }
+    }
+    Ok(Json(UsageEstimate {
+        timestamp: timestamp.into(),
+        computed_at: estimate.computed_at.into(),
+        complete: estimate.metrics.iter().all(|m| m.fees.is_some()),
+        metrics: estimate
+            .metrics
+            .iter()
+            .map(|m| MetricFeeEstimate {
+                metric: refs.metric(m.metric.id),
+                name: m.metric.name.clone(),
+                quantity: m.quantity.map(|quantity| quantity.normalize()),
+                fees: m
+                    .fees
+                    .as_ref()
+                    .map(|fees| fees.iter().map(event_cost).collect()),
+            })
+            .collect(),
+        totals: totals.iter().map(event_cost).collect(),
+    }))
 }
 
 /// Get a subscription's usage costs
@@ -1135,6 +1354,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(get_subscription_usage))
         .routes(routes!(get_subscription_usage_costs))
         .routes(routes!(list_subscription_usage_events))
+        .routes(routes!(estimate_subscription_usage))
         .routes(routes!(get_usage_summary))
 }
 

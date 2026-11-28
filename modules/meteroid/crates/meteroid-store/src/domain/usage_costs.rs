@@ -3,6 +3,7 @@ use crate::services::clients::usage::{MetricEvent, MetricEventCursor};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{BillableMetricId, CustomerId, ProductId, SubscriptionId};
 use rust_decimal::Decimal;
+use std::collections::HashMap;
 
 /// A billable metric named the way API callers do: by id or by code.
 #[derive(Debug, Clone)]
@@ -108,6 +109,84 @@ pub struct WalletDailyUsage {
 pub struct MetricRunningCost {
     pub metric: BillableMetric,
     pub costs: Vec<UsageCost>,
+    /// Where the usage would end each window at its pace so far ([`project`]); `None` while a
+    /// window is too young to tell, or has not started.
+    pub projected: Option<MetricProjection>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MetricProjection {
+    /// The windows' projected usage added up; `None` for a metric that does not add up over
+    /// time, which is projected as it stands.
+    pub quantity: Option<Decimal>,
+    /// The windows priced whole at their projected usage. A credit-priced window counts its
+    /// credits: the money overage once the wallet runs out is not projected.
+    pub costs: Vec<UsageCost>,
+}
+
+/// Below this much of a window, a linear projection says more about noise than about usage.
+pub const MIN_PROJECTION_ELAPSED_SECONDS: i64 = 3600;
+/// Nor below this share of it, lest an early burst project a hundredfold.
+const MIN_PROJECTION_ELAPSED_PERCENT: i64 = 5;
+
+/// How much longer `[start, end)` is than what of it has elapsed at `at`; `None` too early to tell.
+pub fn projection_factor(
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+    at: NaiveDateTime,
+) -> Option<Decimal> {
+    if at >= end {
+        return Some(Decimal::ONE);
+    }
+    let elapsed = (at - start).num_seconds();
+    let total = (end - start).num_seconds();
+    if elapsed < MIN_PROJECTION_ELAPSED_SECONDS
+        || elapsed * 100 < total * MIN_PROJECTION_ELAPSED_PERCENT
+    {
+        return None;
+    }
+    Decimal::from(total).checked_div(Decimal::from(elapsed))
+}
+
+/// `metric`'s `value` at the same pace over a range `factor` times longer: a metric that adds up
+/// over time (sum, count) grows linearly, any other (max, latest, mean, unique) as it stands.
+pub fn project(metric: &BillableMetric, value: Decimal, factor: Decimal) -> Option<Decimal> {
+    match adds_up(metric) {
+        true => value.checked_mul(factor),
+        false => Some(value),
+    }
+}
+
+pub fn adds_up(metric: &BillableMetric) -> bool {
+    use crate::domain::enums::BillingMetricAggregateEnum as Aggregate;
+    matches!(metric.aggregation_type, Aggregate::Sum | Aggregate::Count)
+}
+
+/// An event priced without being ingested.
+#[derive(Debug, Clone)]
+pub struct EstimatedEvent {
+    pub code: String,
+    pub timestamp: NaiveDateTime,
+    pub properties: HashMap<String, String>,
+}
+
+/// What one metric of the event's code would bill for it on the subscription's next invoice.
+#[derive(Debug, Clone)]
+pub struct MetricEstimate {
+    pub metric: BillableMetric,
+    /// The billed units it adds; `None` when the metric does not add events up (max, latest,
+    /// mean, unique).
+    pub quantity: Option<Decimal>,
+    /// What it adds to the invoice, by currency or credit unit, before discounts and credits;
+    /// `None` with `quantity`.
+    pub fees: Option<Vec<UsageCost>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventEstimate {
+    pub computed_at: NaiveDateTime,
+    /// The metrics that would bill the event; empty when none does.
+    pub metrics: Vec<MetricEstimate>,
 }
 
 #[derive(Debug, Clone)]

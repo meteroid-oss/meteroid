@@ -1,6 +1,7 @@
 use super::model::{
     CustomerUsageQuery, GroupedUsage, MetricUsage, SubscriptionUsageQuery, UnattributedMetricUsage,
-    UnattributedUsageQuery, UnattributedUsageResponse, UsageResponse, UsageSummaryQuery, sum_costs,
+    UnattributedUsageQuery, UnattributedUsageResponse, UsageResponse, UsageSummaryQuery,
+    projected_totals, sum_costs,
 };
 use crate::AppState;
 use crate::rate_limit::rate_limit_usage_costs;
@@ -14,6 +15,7 @@ use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::extract::{ApiPath, ApiValid};
+use meteroid_store::domain::usage_costs::MetricProjection;
 use meteroid_store::domain::{BillableMetric, UsagePeriod, unattributed_default_range};
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
@@ -80,6 +82,7 @@ pub async fn get_customer_usage(
         usage,
         computed_at: None,
         totals: None,
+        projected_totals: None,
     }))
 }
 
@@ -263,6 +266,7 @@ pub async fn get_subscription_usage(
         usage,
         computed_at: None,
         totals: None,
+        projected_totals: None,
     }))
 }
 
@@ -314,6 +318,7 @@ pub async fn get_usage_summary(
         usage,
         computed_at: None,
         totals: None,
+        projected_totals: None,
     }))
 }
 
@@ -387,6 +392,8 @@ pub(crate) async fn fetch_usage_for_metrics(
             total_value,
             grouped_usage,
             costs: None,
+            projected_value: None,
+            projected_costs: None,
         });
     }
 
@@ -450,28 +457,44 @@ pub(crate) async fn current_period_usage(
             usage,
             computed_at: None,
             totals: None,
+            projected_totals: None,
         }));
     };
     for metric in &mut usage {
+        let priced = running
+            .metrics
+            .iter()
+            .find(|priced| priced.metric.id == metric.metric_id);
         metric.costs = Some(
-            running
-                .metrics
-                .iter()
-                .find(|priced| priced.metric.id == metric.metric_id)
+            priced
                 .map(|priced| priced.costs.iter().cloned().map(Into::into).collect())
                 .unwrap_or_default(),
         );
+        // A metric no window prices bills nothing: it stays as it is.
+        let projected = match priced {
+            Some(priced) => priced.projected.clone(),
+            None => Some(MetricProjection {
+                quantity: None,
+                costs: Vec::new(),
+            }),
+        };
+        if let Some(projected) = projected {
+            metric.projected_value = Some(projected.quantity.unwrap_or(metric.total_value));
+            metric.projected_costs = Some(projected.costs.into_iter().map(Into::into).collect());
+        }
     }
     let totals = sum_costs(
         usage
             .iter()
             .flat_map(|metric| metric.costs.iter().flatten()),
     );
+    let projected_totals = projected_totals(&usage);
     Ok(std::sync::Arc::new(UsageResponse {
         period_start: period.start.date(),
         period_end: period.end.date(),
         usage,
         computed_at: Some(running.computed_at.into()),
         totals: Some(totals),
+        projected_totals,
     }))
 }

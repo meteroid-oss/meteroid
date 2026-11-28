@@ -232,6 +232,18 @@ pub struct MetricFilters(pub Vec<MetricFilter>);
 
 json_value_serde!(MetricFilters);
 
+impl MetricFilters {
+    /// Whether an event with these properties feeds the metric. Every filter needs the property,
+    /// the negations included, as metering applies them.
+    pub fn admits(&self, properties: &HashMap<String, String>) -> bool {
+        self.0.iter().all(|filter| {
+            properties
+                .get(&filter.property)
+                .is_some_and(|value| filter.values.contains(value) != filter.op.is_negation())
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BillableMetricNew {
     pub name: String,

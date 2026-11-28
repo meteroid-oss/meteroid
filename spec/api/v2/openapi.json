@@ -22943,13 +22943,105 @@
         "x-meteroid-edition": "oss"
       }
     },
+    "/api/v2/subscriptions/{id_or_external_id}/upcoming-invoice": {
+      "get": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "Get a subscription's upcoming invoice",
+        "description": "Its next invoice as it would be issued today, written nowhere: the next period's fixed\ncharges, the current period's usage so far, discounts, tax, and the changes scheduled by its\ndate (a cancellation, a plan change, an amendment). The credit it draws is estimated in billing\norder across the customer's pending invoices. For where usage is heading, read the\nsubscription's usage (`projected_costs`).",
+        "operationId": "get_upcoming_invoice",
+        "parameters": [
+          {
+            "name": "id_or_external_id",
+            "in": "path",
+            "description": "Subscription id or external id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription's next invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpcomingInvoice"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "The subscription is not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended (cancelled, aborted, completed): it has no next invoice",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
     "/api/v2/subscriptions/{id_or_external_id}/usage": {
       "get": {
         "tags": [
           "Subscriptions"
         ],
         "summary": "Get a subscription's usage",
-        "description": "Its usage of each metric it bills over `[from, to)`. Left out, the range is its current\nperiod, and the reading then carries its running total (beta): what each metric's usage adds\nso far to the next invoice, and their sum, before discounts and credits, shared for up to 30\nseconds (`computed_at`). Counts towards the usage cost reads' rate limit.",
+        "description": "Its usage of each metric it bills over `[from, to)`. Left out, the range is its current\nperiod, and the reading then carries its running total (beta): what each metric's usage adds\nso far to the next invoice, and their sum, before discounts and credits, shared for up to 30\nseconds (`computed_at`), with where each would end the period at its pace so far\n(`projected_quantity`, `projected_costs`, `projected_totals`). Counts towards the usage cost\nreads' rate limit.",
         "operationId": "get_subscription_usage",
         "parameters": [
           {
@@ -23204,6 +23296,141 @@
           },
           "422": {
             "description": "A parameter is refused, or a metric the subscription does not bill",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many usage cost reads",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss"
+      }
+    },
+    "/api/v2/subscriptions/{id_or_external_id}/usage/estimate": {
+      "post": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "Estimate an event's fee",
+        "description": "What the event would add to the subscription's next invoice if it were ingested now, given\nthe period's usage so far, written nowhere. Each metric of its code the subscription bills\nprices it when its window, usage scope, filters and segmentation take the event in. A unit\nprice or a rate by dimension gives the event's exact share; any other price (tiers, volume,\npackages, a rounded unit conversion, capacity overage) gives what the period's price gains\nwith it. Before discounts, credits and tax. Gated and rate limited as the usage costs.",
+        "operationId": "estimate_subscription_usage",
+        "parameters": [
+          {
+            "name": "id_or_external_id",
+            "in": "path",
+            "description": "Subscription id or external id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateUsage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the event would bill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageEstimate"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Usage costs are not enabled for the organization",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "404": {
+            "description": "The subscription is not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              }
+            }
+          },
+          "422": {
+            "description": "The event is refused: no metric the subscription bills reads its code, or it falls outside the current period",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -25429,6 +25656,41 @@
         "examples": [
           "bm_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "BilledFirst": {
+        "type": "object",
+        "description": "A pending invoice billed before this one that draws on the same customer-wide credit.",
+        "required": [
+          "invoice_date"
+        ],
+        "properties": {
+          "invoice": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The invoice, once drafted."
+          },
+          "invoice_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "subscription": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The subscription it bills."
+          }
+        }
       },
       "Billing": {
         "type": "string",
@@ -32087,6 +32349,43 @@
           "act_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "EstimateUsage": {
+        "type": "object",
+        "description": "An event to price without ingesting it.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The event code (`api_calls`): every metric of this code the subscription bills prices it."
+          },
+          "properties": {
+            "type": "object",
+            "description": "As ingested: what metrics filter, group and aggregate by.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EventPropertyValue"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "example": {
+              "region": "us-east-1",
+              "tokens": 1200
+            }
+          },
+          "timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "RFC 3339, within the subscription's current period; now when left out.",
+            "example": "2026-01-15T10:30:00Z"
+          }
+        },
+        "additionalProperties": false
+      },
       "EventActor": {
         "type": "object",
         "required": [
@@ -34878,6 +35177,42 @@
           }
         }
       },
+      "MetricFeeEstimate": {
+        "type": "object",
+        "description": "What one metric would bill for the event.",
+        "required": [
+          "metric",
+          "name"
+        ],
+        "properties": {
+          "fees": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EventCost"
+            },
+            "description": "What it adds to the next invoice, by currency or credit unit; absent with `quantity`."
+          },
+          "metric": {
+            "$ref": "#/components/schemas/MetricRef",
+            "description": "The metric."
+          },
+          "name": {
+            "type": "string",
+            "description": "The metric's name."
+          },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "The billed units the event adds (0 without the property it sums, as metering counts it);\nabsent when the metric does not add events up (max, latest, mean, unique count)."
+          }
+        }
+      },
       "MetricList": {
         "type": "object",
         "description": "A page of `Metric` items, by cursor: pass `next_cursor` as `after` for the next.",
@@ -34958,6 +35293,24 @@
           "name": {
             "type": "string",
             "description": "The metric's name."
+          },
+          "projected_costs": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/UsageAmount"
+            },
+            "description": "Beta: what `costs` would reach at that pace, each usage window priced whole as its invoice\nprices it (tiers and volumes included). Usage priced in credit counts its credits: the\nmoney billed once the wallet runs out is not projected."
+          },
+          "projected_quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Beta, on a subscription's current period only: `quantity` at its pace so far until the\nperiod's end. A sum or a count grows linearly; a max, latest, mean or unique count is\nprojected as it stands. Each usage window is projected to its own end (a plan change or a\nscheduled stop ends one), so this is what the invoice would bill. Absent until an hour and\n5% of every window have elapsed, and while a window has not started."
           },
           "quantity": {
             "type": "string",
@@ -39445,6 +39798,222 @@
           "ignore"
         ]
       },
+      "UpcomingCredit": {
+        "type": "object",
+        "description": "One kind of credit the invoice is expected to draw.",
+        "required": [
+          "kind",
+          "label",
+          "amount",
+          "currency",
+          "before_tax"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In minor units of `currency`."
+          },
+          "before_tax": {
+            "type": "boolean",
+            "description": "Taken off the charges before tax (promotional credit); otherwise paid on the taxed total."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GrantKind",
+            "description": "The kind of credit."
+          },
+          "label": {
+            "type": "string",
+            "description": "\"Included with Scale\", \"Purchased credit\", \"Free credit\" or \"Account balance\"."
+          },
+          "subscription": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The subscription the credit belongs to; absent when it pays any of the customer's."
+          }
+        }
+      },
+      "UpcomingInvoice": {
+        "type": "object",
+        "description": "A subscription's next invoice as it would be issued today: its fixed charges for the next\nperiod, the usage of the current one so far, the changes scheduled by its date, and the credit\nit would draw once every invoice billed before it drew its own. Amounts in minor units.",
+        "required": [
+          "subscription",
+          "plan",
+          "currency",
+          "invoice_date",
+          "period_start",
+          "period_end",
+          "finalized_on",
+          "due_date",
+          "net_terms",
+          "invoiced",
+          "subtotal",
+          "discount",
+          "promotional_credits",
+          "tax",
+          "total",
+          "applied_credits",
+          "amount_due",
+          "lines",
+          "credits",
+          "credit_estimate_shared"
+        ],
+        "properties": {
+          "amount_due": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What is left to pay once credit applies."
+          },
+          "applied_credits": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Credit drawn on the taxed total."
+          },
+          "billed_first": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BilledFirst"
+            },
+            "description": "The pending invoices billed first that draw on the same credit."
+          },
+          "change": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UpcomingInvoiceChange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it settles besides a renewal; absent for a plain renewal."
+          },
+          "coupons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentCoupon"
+            }
+          },
+          "credit_estimate_shared": {
+            "type": "boolean",
+            "description": "The credit is shared with other pending invoices, so the amounts after it are estimates."
+          },
+          "credits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpcomingCredit"
+            },
+            "description": "The credit drawn, by kind, in draw order."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217."
+          },
+          "discount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What discounts and coupons take off."
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "description": "`finalized_on` plus `net_terms`."
+          },
+          "finalized_on": {
+            "type": "string",
+            "format": "date",
+            "description": "When it is finalized (and charged, when charged automatically): after the grace period."
+          },
+          "invoice_date": {
+            "type": "string",
+            "format": "date",
+            "description": "The date it is issued for: the period's end, or the end date of a final invoice\n(`change: ends`), which can fall before `period_end`."
+          },
+          "invoiced": {
+            "type": "boolean",
+            "description": "False when nothing will be invoiced: a subscription that never activated ends without one."
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentLine"
+            }
+          },
+          "net_terms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "new_plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlanRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan a scheduled plan change moves to."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanRef",
+            "description": "The plan the subscription is on now."
+          },
+          "promotional_credits": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Promotional credit drawn before tax."
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/SubscriptionRef"
+          },
+          "subtotal": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The lines' total before discounts, credit and tax."
+          },
+          "tax": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taxes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentTax"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The total, tax included."
+          }
+        }
+      },
+      "UpcomingInvoiceChange": {
+        "type": "string",
+        "description": "What the next invoice settles besides renewing the period: `ends`, the subscription's final\ninvoice (cancelled, or reaching its end date); `plan_change`, a scheduled plan change takes\neffect on its date; `amendment`, a scheduled amendment does.",
+        "x-extensible-enum": [
+          "ends",
+          "plan_change",
+          "amendment"
+        ]
+      },
       "UpdateAddOn": {
         "type": "object",
         "description": "A merge patch. `prices` replaces every price of the charge; how it bills never changes.",
@@ -40563,6 +41132,47 @@
           }
         }
       },
+      "UsageEstimate": {
+        "type": "object",
+        "description": "What an event would add to the subscription's next invoice, were it ingested now.",
+        "required": [
+          "timestamp",
+          "computed_at",
+          "metrics",
+          "totals",
+          "complete"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean",
+            "description": "False when a metric's fee could not be estimated: `totals` then leaves it out."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the usage it adds to was read."
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetricFeeEstimate"
+            },
+            "description": "The metrics that would bill it; empty when none would: filtered out, outside the\nsubscription's scope, or nothing invoiced (a subscription cancelled or paused). Empty means\n\"not billed\", not \"free\"."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time the event is priced at."
+          },
+          "totals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventCost"
+            },
+            "description": "The metrics' fees added up, per currency or credit unit."
+          }
+        }
+      },
       "UsageEvent": {
         "type": "object",
         "description": "A usage event a metric read, as metering keeps it.",
@@ -40693,6 +41303,16 @@
               "$ref": "#/components/schemas/MetricUsage"
             },
             "description": "The usage of each metric."
+          },
+          "projected_totals": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/UsageAmount"
+            },
+            "description": "Beta: the metrics' projected costs added up; absent unless every metric has one."
           },
           "to": {
             "type": "string",

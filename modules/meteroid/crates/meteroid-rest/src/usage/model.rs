@@ -52,14 +52,20 @@ pub struct UsageResponse {
     /// Beta: the sum of the metrics' `costs`, per currency or credit unit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub totals: Option<Vec<UsageCost>>,
+    /// v2 only: the metrics' `projected_costs` added up.
+    #[serde(skip)]
+    pub projected_totals: Option<Vec<UsageCost>>,
 }
 
 impl UsageResponse {
     pub fn without_costs(mut self) -> Self {
         self.computed_at = None;
         self.totals = None;
+        self.projected_totals = None;
         for metric in &mut self.usage {
             metric.costs = None;
+            metric.projected_value = None;
+            metric.projected_costs = None;
         }
         self
     }
@@ -81,9 +87,11 @@ impl UsageResponse {
                     .flat_map(|metric| metric.costs.iter().flatten()),
             )
         });
+        let projected_totals = projected_totals(&usage);
         Self {
             usage,
             totals,
+            projected_totals,
             ..self.clone()
         }
     }
@@ -101,6 +109,15 @@ pub fn sum_costs<'a>(costs: impl IntoIterator<Item = &'a UsageCost>) -> Vec<Usag
         }
     }
     totals
+}
+
+/// The metrics' projected costs added up; `None` unless every metric has one.
+pub fn projected_totals(usage: &[MetricUsage]) -> Option<Vec<UsageCost>> {
+    let mut projected = Vec::with_capacity(usage.len());
+    for metric in usage {
+        projected.push(metric.projected_costs.as_ref()?);
+    }
+    Some(sum_costs(projected.into_iter().flatten()))
 }
 
 /// A subscription's current-period usage and costs, shared by the reads of the next seconds.
@@ -138,6 +155,12 @@ pub struct MetricUsage {
     /// or credit unit; empty while it bills nothing, as during a free trial or once cancelled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub costs: Option<Vec<UsageCost>>,
+    /// v2 only: `total_value` at its pace until the period's end.
+    #[serde(skip)]
+    pub projected_value: Option<rust_decimal::Decimal>,
+    /// v2 only: what `costs` would reach at the usage's pace until the period's end.
+    #[serde(skip)]
+    pub projected_costs: Option<Vec<UsageCost>>,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize)]
@@ -177,4 +200,63 @@ pub struct UnattributedMetricUsage {
     pub until: ApiDateTime,
     #[schema(value_type = String, format = "decimal")]
     pub total_value: rust_decimal::Decimal,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::usage_costs::model::UsageCostUnit;
+    use common_domain::ids::BaseId;
+    use rust_decimal::Decimal;
+
+    fn eur(amount: Decimal) -> UsageCost {
+        UsageCost {
+            amount,
+            currency: "EUR".to_owned(),
+            unit: UsageCostUnit::Currency,
+        }
+    }
+
+    fn metric(projected: Option<Decimal>) -> MetricUsage {
+        MetricUsage {
+            metric_id: BillableMetricId::new(),
+            metric_name: "Tokens".to_owned(),
+            metric_code: "tokens".to_owned(),
+            total_value: Decimal::from(10),
+            grouped_usage: Vec::new(),
+            costs: Some(vec![eur(Decimal::from(1))]),
+            projected_value: projected.map(|_| Decimal::from(30)),
+            projected_costs: projected.map(|amount| vec![eur(amount)]),
+        }
+    }
+
+    fn reading(usage: Vec<MetricUsage>) -> UsageResponse {
+        let projected_totals = projected_totals(&usage);
+        UsageResponse {
+            period_start: NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+            period_end: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
+            usage,
+            computed_at: None,
+            totals: None,
+            projected_totals,
+        }
+    }
+
+    #[test]
+    fn a_closed_gate_leaves_no_projection() {
+        let closed = reading(vec![metric(Some(Decimal::from(3)))]).without_costs();
+        assert!(closed.projected_totals.is_none());
+        assert!(closed.usage[0].projected_value.is_none());
+        assert!(closed.usage[0].projected_costs.is_none());
+    }
+
+    #[test]
+    fn one_metric_keeps_its_projection_when_another_has_none() {
+        let projected = metric(Some(Decimal::from(3)));
+        let id = projected.metric_id;
+        let full = reading(vec![projected, metric(None)]);
+        assert!(full.projected_totals.is_none());
+        let one = full.only_metric(Some(id));
+        assert_eq!(one.projected_totals, Some(vec![eur(Decimal::from(3))]));
+    }
 }
