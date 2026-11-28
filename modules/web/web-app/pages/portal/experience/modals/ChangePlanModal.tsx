@@ -8,7 +8,7 @@ import { ChangeDirection } from '@/rpc/portal/subscription/v1/subscription_pb'
 
 import { Contact } from '../Contact'
 import { PeriodToggle } from '../PeriodToggle'
-import { appliesOn, feeLabel, money, packLineView } from '../format'
+import { appliedMessage, appliesOn, feeLabel, money, packLineView } from '../format'
 import { usePortalOverview, useSubscription } from '../hooks'
 import { planPriceShort } from '../planPrice'
 import { Modal, ModalCloseButton, Mono, PButton, Pill, Spinner } from '../primitives'
@@ -131,13 +131,13 @@ export const ChangePlanModal = ({
   const confirm = async () => {
     if (!selected || downgradeBlocked) return
     try {
-      const { redirected } = await sm.confirmPlan(
+      const { redirected, res } = await sm.confirmPlan(
         selected.plan.planVersionId,
         selected.variant?.id,
         levels
       )
       if (!redirected) {
-        toast.success('Plan updated')
+        toast.success(appliedMessage('Plan updated', res.invoicePending))
         onApplied()
       }
     } catch (e) {

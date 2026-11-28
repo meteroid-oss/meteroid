@@ -10,6 +10,7 @@ import {
   BellMinus,
   BellOff,
   BellRing,
+  ClipboardCheck,
   CalendarX,
   CheckCircle2,
   CirclePause,
@@ -294,6 +295,16 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
       return {
         icon: <CheckCircle2 className="h-4 w-4 text-foreground" />,
         title: <>{entityRef(entry, 'Invoice', 'Invoice')} finalized</>,
+      }
+    case 'invoice.awaiting_review':
+      return {
+        icon: <ClipboardCheck className="h-4 w-4 text-warning" />,
+        title: (
+          <>
+            {entityRef(entry, 'Invoice', 'Invoice')} awaits your review: the customer changed their
+            subscription and its invoice stays a draft until you finalize it
+          </>
+        ),
       }
     case 'invoice.paid':
       return {

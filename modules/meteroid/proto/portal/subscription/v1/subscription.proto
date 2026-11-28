@@ -294,6 +294,8 @@ message ConfirmPlanChangeResponse {
   optional string adjustment_invoice_id = 4;
   PlanChangeStatus status = 5;
   optional string checkout_token = 6;
+  // The change applies, its invoice is checked by the team before it is sent (R-166).
+  bool invoice_pending = 7;
 }
 
 message CancelScheduledEventRequest {
@@ -374,6 +376,8 @@ message PurchaseAddOnResponse {
   AddOnPurchaseStatus status = 1;
   optional string checkout_token = 2;
   optional string add_on_name = 3;
+  // The change applies, its invoice is checked by the team before it is sent (R-166).
+  bool invoice_pending = 4;
 }
 
 message GetSubscriptionComponentUsageRequest {
@@ -457,6 +461,8 @@ message ListAdjustableComponentsResponse {
   // The customer may move a usage-levels charge to a lower level (at the end of the period);
   // else only higher levels are theirs to pick, the account team arranging the others.
   bool level_downgrade = 4;
+  // Increases apply now; their invoice is checked by the team before it is sent (R-166).
+  bool invoices_reviewed = 5;
 }
 
 enum AdjustmentStatus {
@@ -476,6 +482,8 @@ message UpdateAddOnQuantityResponse {
   optional string effective_date = 2;
   optional string checkout_token = 3;
   optional string scheduled_event_id = 4;
+  // The change applies, its invoice is checked by the team before it is sent (R-166).
+  bool invoice_pending = 5;
 }
 
 message UpdateSeatsRequest {
@@ -491,6 +499,8 @@ message UpdateSeatsResponse {
   optional string effective_date = 2;
   optional string checkout_token = 3;
   optional string scheduled_event_id = 4;
+  // The change applies, its invoice is checked by the team before it is sent (R-166).
+  bool invoice_pending = 5;
 }
 
 // Server-computed preview of a self-service quantity change (add-on or seat),
@@ -558,6 +568,8 @@ message ChangeLevelResponse {
   optional string effective_date = 2;
   optional string scheduled_event_id = 3;
   optional string adjustment_invoice_id = 4;
+  // The change applies, its invoice is checked by the team before it is sent (R-166).
+  bool invoice_pending = 5;
 }
 
 service PortalSubscriptionService {

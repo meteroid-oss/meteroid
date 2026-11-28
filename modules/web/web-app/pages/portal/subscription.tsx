@@ -41,7 +41,7 @@ import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
 import { Contact } from './experience/Contact'
-import { appliesOn, isDue, packLineView } from './experience/format'
+import { INVOICE_FOLLOWS, appliesOn, isDue, packLineView } from './experience/format'
 import { usePortalOverview } from './experience/hooks'
 import { planPriceShort } from './experience/planPrice'
 import {
@@ -133,6 +133,7 @@ export const PortalSubscription = () => {
   const [confirmResult, setConfirmResult] = useState<{
     effectiveDate: string
     changeDirection: ChangeDirection
+    invoicePending: boolean
   } | null>(null)
 
   const detailsQuery = useQuery(getSubscriptionDetails, { subscriptionId: subscriptionId! })
@@ -203,6 +204,7 @@ export const PortalSubscription = () => {
       setConfirmResult({
         effectiveDate: res.effectiveDate,
         changeDirection: res.changeDirection,
+        invoicePending: res.invoicePending,
       })
       setMode('confirmed')
     } catch (e) {
@@ -321,6 +323,7 @@ export const PortalSubscription = () => {
           effectiveDate={confirmResult?.effectiveDate ?? null}
           isImmediate={!!confirmResult && isDue(confirmResult.effectiveDate)}
           isUpgrade={confirmResult?.changeDirection === ChangeDirection.UPGRADE}
+          invoicePending={!!confirmResult?.invoicePending}
           onDone={handleBackToPortal}
         />
       )}
@@ -1310,11 +1313,13 @@ function ConfirmedView({
   effectiveDate,
   isImmediate,
   isUpgrade,
+  invoicePending,
   onDone,
 }: {
   effectiveDate: string | null
   isImmediate: boolean
   isUpgrade: boolean
+  invoicePending: boolean
   onDone: () => void
 }) {
   return (
@@ -1330,7 +1335,10 @@ function ConfirmedView({
           {isImmediate ? (
             <>
               Your new plan applies from today.
-              <br />A prorated adjustment will appear on your next invoice.
+              <br />
+              {invoicePending
+                ? INVOICE_FOLLOWS
+                : 'A prorated adjustment will appear on your next invoice.'}
             </>
           ) : (
             <>

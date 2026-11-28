@@ -215,6 +215,10 @@ pub enum ActivityType {
     #[strum(serialize = "invoice.deleted")]
     #[serde(rename = "invoice.deleted")]
     InvoiceDeleted,
+    /// A customer's own change left its invoice a draft for the team to review (R-166).
+    #[strum(serialize = "invoice.awaiting_review")]
+    #[serde(rename = "invoice.awaiting_review")]
+    InvoiceAwaitingReview,
 
     #[strum(serialize = "credit_note.created")]
     #[serde(rename = "credit_note.created")]

@@ -310,6 +310,8 @@ export const useSubscription = (
     addOns: addOns.data?.addOns ?? [],
     adjustableComponents: adjustable.data?.components ?? [],
     canSelfServe: adjustable.data?.canSelfServe ?? false,
+    /** Increases apply now; their invoice follows once the team has checked it. */
+    invoicesReviewed: adjustable.data?.invoicesReviewed ?? false,
     allowDowngrade: adjustable.data?.allowDowngrade ?? true,
     levelDowngrade: adjustable.data?.levelDowngrade ?? false,
     upcomingInvoice: upcoming.data?.invoice,

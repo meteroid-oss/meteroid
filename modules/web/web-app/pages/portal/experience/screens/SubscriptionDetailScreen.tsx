@@ -16,7 +16,15 @@ import { AdjustmentStatus, PendingEventType } from '@/rpc/portal/subscription/v1
 
 import { UsageChart } from '../UsageChart'
 import { usePortalNav } from '../context'
-import { date, feeLabel, money, periodSuffix, subStatusBadge } from '../format'
+import {
+  appliedMessage,
+  date,
+  feeLabel,
+  increasesCaption,
+  money,
+  periodSuffix,
+  subStatusBadge,
+} from '../format'
 import { useSubscription } from '../hooks'
 import {
   Card,
@@ -378,9 +386,9 @@ const AddOnsTab = ({
   const addAddOn = async (a: AvailableAddOn) => {
     setBusyId(a.addOnId)
     try {
-      const { redirected } = await sm.purchase(a.addOnId)
+      const { redirected, res } = await sm.purchase(a.addOnId)
       if (!redirected) {
-        toast.success(`${a.name} added`)
+        toast.success(appliedMessage(`${a.name} added`, res.invoicePending))
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Unable to add add-on')
@@ -402,7 +410,11 @@ const AddOnsTab = ({
               : 'Change scheduled for period end'
           )
         } else {
-          toast.success(target === 0 ? `${a.name} removed` : `${a.name} updated`)
+          toast.success(
+            target === 0
+              ? `${a.name} removed`
+              : appliedMessage(`${a.name} updated`, res.invoicePending)
+          )
         }
       }
     } catch (e) {
@@ -417,7 +429,7 @@ const AddOnsTab = ({
       title="Add-ons"
       action={
         <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
-          Increases bill now · reductions at period end
+          {increasesCaption(sm.invoicesReviewed)}
         </span>
       }
     >
@@ -525,7 +537,7 @@ const CommitmentsCard = ({
             res.effectiveDate ? `Reduces on ${date(res.effectiveDate)}` : 'Scheduled for period end'
           )
         } else {
-          toast.success('Updated')
+          toast.success(appliedMessage('Updated', res.invoicePending))
         }
       }
     } catch (e) {
@@ -540,7 +552,7 @@ const CommitmentsCard = ({
       title="Seats & commitments"
       action={
         <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
-          Increases bill now · reductions at period end
+          {increasesCaption(sm.invoicesReviewed)}
         </span>
       }
     >
@@ -627,7 +639,7 @@ const CommitmentsCard = ({
                   ? res.effectiveDate
                     ? `Level changes on ${date(res.effectiveDate)}`
                     : 'Level change scheduled for period end'
-                  : 'Level changed'
+                  : appliedMessage('Level changed', res.invoicePending)
               )
               setLevelOf(null)
             } catch (e) {

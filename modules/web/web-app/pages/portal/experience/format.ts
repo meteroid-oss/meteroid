@@ -401,3 +401,15 @@ export const nextPayment = <M>(invoice: {
 /** "Pro · Marketing": the resource tells two subscriptions to one plan apart. */
 export const subscriptionTitle = (s: Pick<SubscriptionSummary, 'planName' | 'resourceName'>) =>
   s.resourceName ? `${s.planName} · ${s.resourceName}` : s.planName
+
+/** A change applied whose invoice the team checks before sending it (R-166). */
+export const INVOICE_FOLLOWS = 'Your invoice for this change will follow shortly.'
+
+/** A success toast, telling the customer when the change's invoice is still to come. */
+export const appliedMessage = (message: string, invoicePending: boolean) =>
+  invoicePending ? `${message}. ${INVOICE_FOLLOWS}` : message
+
+export const increasesCaption = (invoicesReviewed: boolean) =>
+  invoicesReviewed
+    ? 'Increases apply now and are invoiced shortly · reductions at period end'
+    : 'Increases bill now · reductions at period end'

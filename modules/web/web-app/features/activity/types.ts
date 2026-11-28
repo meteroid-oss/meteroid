@@ -15,6 +15,7 @@ export const KNOWN_ACTIVITY_TYPES = [
   'invoice.voided',
   'invoice.consolidated',
   'invoice.deleted',
+  'invoice.awaiting_review',
   'product.created',
   'product.updated',
   'product.archived',

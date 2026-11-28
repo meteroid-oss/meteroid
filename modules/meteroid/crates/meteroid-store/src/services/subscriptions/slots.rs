@@ -327,6 +327,13 @@ impl Services {
                     .store
                     .record_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
                     .await?;
+                if let Some(invoice_id) = result.invoice_id
+                    && !subscription.auto_advance_invoices
+                {
+                    services
+                        .note_awaiting_review_tx(conn, actor, subscription, invoice_id)
+                        .await?;
+                }
 
                 Ok(result)
             }

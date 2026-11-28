@@ -22,12 +22,13 @@ use super::issued::{Issued, load_billed, noted_from};
 use super::load::{Overlay, load_facts_with};
 use super::pricer::{StoreFee, StorePricer};
 use crate::StoreResult;
-use crate::domain::entity_activity::Actor;
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::CreditNoteOrigin;
 use crate::domain::subscription_changes::ProrationResult;
 use crate::domain::{Customer, Invoice, InvoiceStatusEnum, LineItem, Subscription};
 use crate::errors::StoreError;
 use crate::repositories::credit_notes::CreditLineItem;
+use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::services::Services;
 use crate::services::clients::usage::UsageClient;
 use crate::services::invoice_lines::fees::pricing_error;
@@ -1360,18 +1361,55 @@ impl Services {
             AdjustmentIssue::AsSubscription => subscription.auto_advance_invoices,
             AdjustmentIssue::Checkout => true,
         };
-        if let Some(invoice) = invoice.as_ref().filter(|_| finalized) {
-            self.finalize_invoice_tx(
-                conn,
-                actor,
-                invoice.id,
-                subscription.tenant_id,
-                false,
-                &None,
-            )
-            .await?;
+        match invoice.as_ref() {
+            Some(invoice) if finalized => {
+                self.finalize_invoice_tx(
+                    conn,
+                    actor,
+                    invoice.id,
+                    subscription.tenant_id,
+                    false,
+                    &None,
+                )
+                .await?;
+            }
+            Some(invoice) => {
+                self.note_awaiting_review_tx(conn, actor, subscription, invoice.id)
+                    .await?;
+            }
+            None => {}
         }
         Ok(invoice)
+    }
+
+    /// A customer's own change whose invoice stays a draft (R-166): recorded on the invoice, the
+    /// customer and the subscription, so the team finds it to review. Nothing for its own changes.
+    pub(in crate::services) async fn note_awaiting_review_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        subscription: &Subscription,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<()> {
+        if !matches!(actor, Actor::Customer { .. }) {
+            return Ok(());
+        }
+        let activity = Activity::new(
+            ActivityType::InvoiceAwaitingReview,
+            EntityType::Invoice,
+            invoice_id.as_uuid(),
+        )
+        .with_metadata(serde_json::json!({ "subscription_id": subscription.id.to_string() }))
+        .agg_customer(subscription.customer_id)
+        .agg_subscription(subscription.id);
+        self.store
+            .record_tx(
+                conn,
+                subscription.tenant_id,
+                actor,
+                AuditInput::Activity(activity),
+            )
+            .await
     }
 
     /// Settles `change`, its facts written: what it owes back on notes against the finalized

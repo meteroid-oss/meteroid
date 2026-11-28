@@ -6,7 +6,7 @@ use tonic::Code;
 use crate::data::ids::*;
 use crate::harness::{TestEnv, subscription, test_env};
 use common_domain::actor::Actor;
-use common_domain::ids::{PlanId, PlanVersionId, SubscriptionId};
+use common_domain::ids::{BaseId, InvoiceId, PlanId, PlanVersionId, SubscriptionId};
 use meteroid_grpc::meteroid::portal::subscription::v1 as portal;
 use meteroid_store::domain::PlanPatch;
 use meteroid_store::repositories::{PlansInterface, PricingPagesInterface};
@@ -385,4 +385,88 @@ async fn portal_never_offers_a_hidden_option() {
         .await
         .expect_err("a hidden option is no switch");
     assert_eq!(refused.code(), Code::InvalidArgument, "{refused:?}");
+}
+
+#[derive(diesel::QueryableByName)]
+struct Count {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    n: i64,
+}
+
+async fn awaiting_review(env: &TestEnv, invoice_id: InvoiceId) -> i64 {
+    use diesel_async::RunQueryDsl;
+    diesel::sql_query(
+        "SELECT count(*) AS n FROM entity_activity WHERE activity_type = 'invoice.awaiting_review' \
+         AND entity_id = $1 AND actor_type = 'CUSTOMER'",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(invoice_id.as_uuid())
+    .get_result::<Count>(&mut env.conn().await)
+    .await
+    .expect("count activities")
+    .n
+}
+
+/// A customer's upgrade on a subscription whose invoices the team finalizes applies at once, its
+/// invoice a draft the team is told to review (R-166); the portal hears its invoice will follow.
+#[rstest]
+#[tokio::test]
+async fn a_customer_upgrade_without_auto_advance_awaits_review(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::enums::InvoiceStatusEnum;
+    use meteroid_store::repositories::InvoiceInterface;
+
+    let env = test_env.await;
+    rank(&env, PLAN_STARTER_ID, Some(1)).await;
+    rank(&env, PLAN_PRO_ID, Some(2)).await;
+
+    for auto_advance in [false, true] {
+        let builder = subscription()
+            .customer(CUST_UBER_ID)
+            .plan_version(PLAN_VERSION_STARTER_ID)
+            .start_date(chrono::Utc::now().date_naive() - chrono::Duration::days(10))
+            .on_start()
+            .no_trial()
+            .external_payment();
+        let builder = if auto_advance {
+            builder
+        } else {
+            builder.no_auto_advance()
+        };
+        let sub_id = builder.create(env.services()).await;
+
+        let confirmed = confirm(&env, sub_id, PLAN_VERSION_PRO_ID)
+            .await
+            .expect("the upgrade applies");
+        assert_eq!(
+            confirmed.status,
+            portal::PlanChangeStatus::PlanChangeCompleted as i32,
+            "{confirmed:?}"
+        );
+        let invoice_id = InvoiceId::from_proto(
+            confirmed
+                .adjustment_invoice_id
+                .as_deref()
+                .expect("the upgrade bills the new plan"),
+        )
+        .expect("invoice id");
+        let status = env
+            .store()
+            .get_detailed_invoice_by_id(TENANT_ID, invoice_id)
+            .await
+            .expect("adjustment invoice")
+            .invoice
+            .status;
+
+        assert_eq!(confirmed.invoice_pending, !auto_advance, "{confirmed:?}");
+        let expected = if auto_advance {
+            InvoiceStatusEnum::Finalized
+        } else {
+            InvoiceStatusEnum::Draft
+        };
+        assert_eq!(status, expected);
+        assert_eq!(
+            awaiting_review(&env, invoice_id).await,
+            i64::from(!auto_advance),
+            "only a draft the customer's change left is flagged for review"
+        );
+    }
 }

@@ -964,6 +964,10 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         effective_date: result.effective_date.as_proto(),
                         change_direction: map_change_direction(direction),
                         scheduled_event_id: None,
+                        invoice_pending: invoice_pending(
+                            &details,
+                            result.adjustment_invoice_id.is_some(),
+                        ),
                         adjustment_invoice_id: result
                             .adjustment_invoice_id
                             .map(|id| id.to_string()),
@@ -994,6 +998,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     adjustment_invoice_id: None,
                     status: PlanChangeStatus::PlanChangeScheduled.into(),
                     checkout_token: None,
+                    invoice_pending: false,
                 }))
             }
         }
@@ -1396,7 +1401,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 },
             };
 
-            self.services
+            let result = self
+                .services
                 .apply_amendment_immediate(actor, subscription_id, tenant_id, amendment)
                 .await
                 .map_err(Into::<PortalSubscriptionApiError>::into)?;
@@ -1405,6 +1411,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 status: AddOnPurchaseStatus::AddonPurchaseCompleted.into(),
                 checkout_token: None,
                 add_on_name: Some(addon.name.clone()),
+                invoice_pending: invoice_pending(&details, result.adjustment_invoice_id.is_some()),
             }));
         }
 
@@ -1681,6 +1688,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             // allowed (deferred to period end) for now.
             allow_downgrade: true,
             level_downgrade,
+            invoices_reviewed: !details.subscription.auto_advance_invoices,
         }))
     }
 
@@ -1790,6 +1798,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 effective_date: Some(result.effective_date.as_proto()),
                 checkout_token: None,
                 scheduled_event_id: None,
+                invoice_pending: invoice_pending(&details, result.adjustment_invoice_id.is_some()),
             }))
         } else {
             // Decrease / remove: at period end.
@@ -1828,6 +1837,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 effective_date: Some(event.scheduled_time.date().as_proto()),
                 checkout_token: None,
                 scheduled_event_id: Some(event.id.to_string()),
+                invoice_pending: false,
             }))
         }
     }
@@ -1921,7 +1931,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             // invoice (auto-charged to the saved method when online). We use the
             // Optimistic mode for a smooth stepper UX — consistent with add-on
             // increases — rather than bouncing the customer to a separate checkout.
-            self.services
+            let result = self
+                .services
                 .update_subscription_slots(
                     tenant_id,
                     subscription_id,
@@ -1938,6 +1949,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 effective_date: Some(common_clock::now().date_naive().as_proto()),
                 checkout_token: None,
                 scheduled_event_id: None,
+                invoice_pending: invoice_pending(&details, result.invoice_id.is_some()),
             }))
         } else {
             // Decrease: the service always defers to period end (no charge).
@@ -1963,6 +1975,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 effective_date: Some(effective_date.as_proto()),
                 checkout_token: None,
                 scheduled_event_id: None,
+                invoice_pending: false,
             }))
         }
     }
@@ -2235,6 +2248,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 status: AdjustmentStatus::AdjustmentCompleted.into(),
                 effective_date: Some(result.effective_date.as_proto()),
                 scheduled_event_id: None,
+                invoice_pending: invoice_pending(&details, result.adjustment_invoice_id.is_some()),
                 adjustment_invoice_id: result.adjustment_invoice_id.map(|id| id.to_string()),
             },
             LevelChangeOutcome::Scheduled(event) => ChangeLevelResponse {
@@ -2242,9 +2256,16 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 effective_date: Some(event.scheduled_time.date().as_proto()),
                 scheduled_event_id: Some(event.id.to_string()),
                 adjustment_invoice_id: None,
+                invoice_pending: false,
             },
         }))
     }
+}
+
+/// A customer's change billed outside a checkout, on a subscription whose invoices the team
+/// finalizes: its invoice is a draft until then (R-166).
+fn invoice_pending(details: &meteroid_store::domain::SubscriptionDetails, invoiced: bool) -> bool {
+    invoiced && !details.subscription.auto_advance_invoices
 }
 
 /// A usage-levels charge's fee at `level`: its current fee, repriced.
@@ -2864,6 +2885,7 @@ impl PortalSubscriptionServiceComponents {
             status: AddOnPurchaseStatus::AddonPurchaseCheckoutRequired.into(),
             checkout_token: Some(token),
             add_on_name: Some(addon.name.clone()),
+            invoice_pending: false,
         }))
     }
 
@@ -3013,6 +3035,7 @@ impl PortalSubscriptionServiceComponents {
             adjustment_invoice_id: None,
             status: PlanChangeStatus::PlanChangeCheckoutRequired.into(),
             checkout_token: Some(token),
+            invoice_pending: false,
         }))
     }
 }
