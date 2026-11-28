@@ -1459,6 +1459,7 @@ pub enum RevrecPostingScopeEnum {
     Documents,
     Revenue,
     Full,
+    Deferrals,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -2190,6 +2190,7 @@ diesel::table! {
         approved_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         posted_at -> Nullable<Timestamptz>,
+        exported_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -3804,6 +3805,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    revrec_contract_adjustment (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        subscription_id -> Uuid,
+        product_id -> Nullable<Uuid>,
+        through -> Date,
+        amount -> Int8,
+        functional_amount -> Int8,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     revrec_period (invoicing_entity_id, month) {
         invoicing_entity_id -> Uuid,
         tenant_id -> Uuid,
@@ -5026,6 +5041,7 @@ diesel::joinable!(retention_session -> subscription (subscription_id));
 diesel::joinable!(retention_session -> tenant (tenant_id));
 diesel::joinable!(retention_settings -> tenant (tenant_id));
 diesel::joinable!(revrec_contract -> tenant (tenant_id));
+diesel::joinable!(revrec_contract_adjustment -> tenant (tenant_id));
 diesel::joinable!(revrec_period -> tenant (tenant_id));
 diesel::joinable!(revrec_settings -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(revrec_settings -> tenant (tenant_id));

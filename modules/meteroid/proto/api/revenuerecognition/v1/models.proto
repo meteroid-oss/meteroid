@@ -38,6 +38,9 @@ enum PostingScope {
   POSTING_SCOPE_REVENUE = 2;
   // Every posting, receivables, cash, tax and exchange differences included.
   POSTING_SCOPE_FULL = 3;
+  // Deferrals only, for a ledger that books invoices, cash and tax from a document export (DATEV):
+  // what is billed and not earned moves between the revenue accounts and deferred revenue.
+  POSTING_SCOPE_DEFERRALS = 4;
 }
 
 enum ChartTemplate {
