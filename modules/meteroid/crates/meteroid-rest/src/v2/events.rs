@@ -159,7 +159,10 @@ fn event_customer(raw: &str) -> Result<grpc::event::CustomerId, &'static str> {
 }
 
 /// The event metering is handed, or why it is refused, at a pointer under `/events/<index>`.
-fn metering_event(event: IngestEvent, index: usize) -> Result<grpc::Event, IngestRejection> {
+pub(crate) fn metering_event(
+    event: IngestEvent,
+    index: usize,
+) -> Result<grpc::Event, IngestRejection> {
     let IngestEvent {
         event_id,
         code,

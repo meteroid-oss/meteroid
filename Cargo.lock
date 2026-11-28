@@ -1460,6 +1460,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-hex"
+version = "1.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dec64a10a1f3012c9950a1759c99e09444a61087441a9b1ced0039c21365f859"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "proptest",
+ "serde_core",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4797,6 +4809,7 @@ dependencies = [
  "hex",
  "hmac-sha256",
  "http",
+ "http-body-util",
  "http-client-tracing",
  "image",
  "insta",
@@ -4825,6 +4838,8 @@ dependencies = [
  "meteroid-utoipa-config",
  "meteroid-utoipa-scalar",
  "meteroid-workers",
+ "opentelemetry-proto",
+ "prost",
  "prost-types",
  "rate-limiter",
  "reqwest 0.13.5",
@@ -5247,6 +5262,8 @@ dependencies = [
  "common-utils",
  "egress-http",
  "error-stack",
+ "flate2",
+ "hex",
  "http",
  "hyper",
  "image",
@@ -5265,6 +5282,7 @@ dependencies = [
  "meteroid-utoipa-config",
  "moka",
  "o2o",
+ "opentelemetry-proto",
  "prost",
  "prost-types",
  "rate-limiter",
@@ -6262,9 +6280,12 @@ version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d576f5dddc3299341bcd85a04be17b2564844c0c9563214f02d85f2524d1afae"
 dependencies = [
+ "base64 0.22.1",
+ "const-hex",
  "opentelemetry",
  "opentelemetry_sdk",
  "prost",
+ "serde",
  "tonic",
  "tonic-prost",
 ]
@@ -11020,6 +11041,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "opentelemetry",
+ "opentelemetry-proto",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "percent-encoding",

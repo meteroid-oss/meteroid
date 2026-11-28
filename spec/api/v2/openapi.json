@@ -8398,6 +8398,272 @@
         "x-idempotency": "optional"
       }
     },
+    "/api/v2/events/litellm": {
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Ingest LiteLLM logs",
+        "description": "Bills the calls LiteLLM's generic API logger (`callbacks: [\"generic_api\"]`) sends: a JSON\narray of `StandardLoggingPayload`s (its `json_array` format), one payload (`single`) or\nNDJSON. Each successful call becomes one `llm_tokens` event per token class with tokens\n(`input`, `output`, `cache_read`, `cache_write`, `reasoning`), its `event_id`\n`<litellm_call_id>:<class>`: a batch sent again is billed once. Failed calls are ignored.\n\nThe customer is `ext:<identity>`, the first identity found among `Meteroid-Customer-From`\n(default `customer_org_alias,end_user,team_alias`; also `customer_member_id`, `team_id`,\n`user_id`, `key_alias`). `Meteroid-Event-Code` changes the event code. A payload naming no\ncustomer, or one Meteroid does not know, is in `rejected`; the others are billed.",
+        "operationId": "ingest_litellm_logs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The calls billed, and the payloads rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LitellmIngestResult"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not LiteLLM logging payloads",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "description": "Too many requests or events, retry later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "503": {
+            "description": "Metering is unavailable, retry later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-idempotency": "optional"
+      }
+    },
+    "/api/v2/events/otlp/v1/traces": {
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Export OTLP traces",
+        "description": "Bills the LLM calls in OpenTelemetry traces an AI gateway exports (OTLP/HTTP, `/v1/traces`\nappended to the endpoint `/api/v2/events/otlp`): `application/x-protobuf` or\n`application/json`, gzip or not, answered in the same encoding. A span with GenAI usage\nattributes (`gen_ai.usage.input_tokens`, `output_tokens`, `cache_read.input_tokens`,\n`cache_creation.input_tokens`, `reasoning.output_tokens`) is one call: one `llm_tokens`\nevent per token class with tokens, cached tokens out of `input` and reasoning out of\n`output`, its `event_id` `<request id>:<class>`, so a batch sent again is billed once. Other\nspans are ignored.\n\nThe request id is the first of `Meteroid-Request-Id-From` (default `litellm.call_id`,\n`gen_ai.request.id`), else `<trace id>-<span id>`. The customer is `ext:<value>`, the\nfirst of `Meteroid-Customer-From` found on the span, then on its resource (default\n`meteroid.customer`, then LiteLLM's organization alias, end user and team alias).\n`Meteroid-Event-Code` changes the event code. Spans naming no customer, or one Meteroid\ndoes not know, are counted in `partialSuccess.rejectedSpans` and named in its\n`errorMessage`; the others are billed.",
+        "operationId": "export_traces",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtlpTraces"
+              }
+            },
+            "application/x-protobuf": {
+              "schema": {
+                "$ref": "#/components/schemas/OtlpTraces"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "An OTLP `ExportTraceServiceResponse`, its `partialSuccess` naming the spans rejected",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtlpTraces"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtlpTraces"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not OTLP traces",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "415": {
+            "description": "Neither protobuf nor JSON, or compressed otherwise than gzip",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests or events, retry later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          },
+          "503": {
+            "description": "Metering is unavailable, retry later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "x-meteroid-edition": "oss",
+        "x-idempotency": "optional"
+      }
+    },
     "/api/v2/features": {
       "get": {
         "tags": [
@@ -34406,6 +34672,57 @@
         },
         "additionalProperties": false
       },
+      "LitellmIngestResult": {
+        "type": "object",
+        "description": "What became of a batch of LiteLLM logging payloads.",
+        "required": [
+          "calls",
+          "events",
+          "ignored",
+          "rejected"
+        ],
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "description": "The calls billed, each one event per token class with tokens.",
+            "minimum": 0
+          },
+          "events": {
+            "type": "integer",
+            "description": "The events accepted. A copy of an event already received counts: it is ignored when\nstored.",
+            "minimum": 0
+          },
+          "ignored": {
+            "type": "integer",
+            "description": "Payloads with no usage to bill: failed calls.",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LitellmRejection"
+            }
+          }
+        }
+      },
+      "LitellmRejection": {
+        "type": "object",
+        "description": "A payload not billed.",
+        "required": [
+          "index",
+          "message"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Its position in the batch.",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "ManagedQuantity": {
         "type": "object",
         "description": "A count a subscription holds and changes over time (seats, licences), shared by every charge\nnaming it: a seat change changes it once for all of them.",
@@ -35273,6 +35590,11 @@
             "$ref": "#/components/schemas/EntitlementOwner"
           }
         }
+      },
+      "OtlpTraces": {
+        "type": "string",
+        "format": "binary",
+        "description": "The document's schema only: an OTLP `ExportTraceServiceRequest`."
       },
       "OverrideEndingEvent": {
         "type": "object",

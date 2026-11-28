@@ -275,6 +275,31 @@ fn discovery_response<T>(
     }
 }
 
+/// The metric's group key, the dimensions its rate cards key, then `group_by`, once each. Not the
+/// keys of the matrix filtering it: metering groups by those already.
+fn group_by_properties<'a>(
+    metric: &'a BillableMetric,
+    group_by: impl IntoIterator<Item = &'a str>,
+) -> Vec<String> {
+    metric
+        .usage_group_key
+        .iter()
+        .chain(&metric.rated_dimensions)
+        .map(String::as_str)
+        .chain(group_by)
+        .filter(|name| {
+            metric
+                .complete_segmentation_matrix()
+                .is_none_or(|matrix| !matrix.keys().contains(name))
+        })
+        .fold(Vec::<String>::new(), |mut names, name| {
+            if !names.iter().any(|known| known == name) {
+                names.push(name.to_owned());
+            }
+            names
+        })
+}
+
 fn meter_request(
     tenant_id: &TenantId,
     keep_last_events: bool,
@@ -293,24 +318,7 @@ fn meter_request(
         customer_ids: vec![customer_id.to_string()],
         from: Some(datetime_to_timestamp(period.start)),
         to: Some(datetime_to_timestamp(period.end)),
-        // Not the keys of the matrix filtering it: metering groups by those already.
-        group_by_properties: metric
-            .usage_group_key
-            .iter()
-            .chain(&metric.rated_dimensions)
-            .map(String::as_str)
-            .chain(group_by)
-            .filter(|name| {
-                metric
-                    .complete_segmentation_matrix()
-                    .is_none_or(|matrix| !matrix.keys().contains(name))
-            })
-            .fold(Vec::<String>::new(), |mut names, name| {
-                if !names.iter().any(|known| known == name) {
-                    names.push(name.to_owned());
-                }
-                names
-            }),
+        group_by_properties: group_by_properties(metric, group_by),
         window_size: window_size.into(),
         timezone: None,
         segmentation_filter: build_segmentation_filter(
@@ -1686,47 +1694,7 @@ impl PendingUsageSource for MeteringUsageClient {
             return Ok(vec![]);
         }
 
-        let metric = request.metric;
-        let origin_filter = match request.origin {
-            OriginFilter::All => query_meter_request::OriginFilter::All,
-        };
-
-        let grpc_request = QueryMeterRequest {
-            tenant_id: request.tenant_id.as_proto(),
-            keep_last_events: request.keep_last_events,
-            meter_slug: metric.id.to_string(),
-            code: metric.code.clone(),
-            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
-            customer_ids: request
-                .customer_ids
-                .iter()
-                .map(|id| id.as_proto())
-                .collect(),
-            from: Some(datetime_to_timestamp(request.since)),
-            to: Some(datetime_to_timestamp(request.until)),
-            group_by_properties: metric
-                .usage_group_key
-                .iter()
-                .map(String::as_str)
-                .chain(request.group_by.into_iter().flat_map(|g| g.split(',')))
-                .fold(Vec::<String>::new(), |mut names, name| {
-                    if !names.iter().any(|known| known == name) {
-                        names.push(name.to_owned());
-                    }
-                    names
-                }),
-            window_size: QueryWindowSize::AggregateAll.into(),
-            timezone: None,
-            segmentation_filter: build_segmentation_filter(
-                metric.complete_segmentation_matrix().cloned(),
-            ),
-            filters: build_property_filters(metric.filters.as_ref()),
-            value_property: metric.aggregation_key.clone(),
-            origin_filter: origin_filter.into(),
-            merge_segments: false,
-            attribution: build_attribution(&metric.usage_scope),
-            ..Default::default()
-        };
+        let grpc_request = pending_usage_request(&request);
 
         let mut client = self.usage_grpc_client.clone();
         let attributed = Attributed::of(grpc_request.attribution.as_ref());
@@ -1770,6 +1738,44 @@ impl PendingUsageSource for MeteringUsageClient {
                 groups,
             })
             .collect())
+    }
+}
+
+/// The read of a live balance, grouped as the invoice reads it so a rate card prices both alike.
+fn pending_usage_request(request: &PendingUsageRequest<'_>) -> QueryMeterRequest {
+    let metric = request.metric;
+    let origin_filter = match request.origin {
+        OriginFilter::All => query_meter_request::OriginFilter::All,
+    };
+
+    QueryMeterRequest {
+        tenant_id: request.tenant_id.as_proto(),
+        keep_last_events: request.keep_last_events,
+        meter_slug: metric.id.to_string(),
+        code: metric.code.clone(),
+        meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
+        customer_ids: request
+            .customer_ids
+            .iter()
+            .map(|id| id.as_proto())
+            .collect(),
+        from: Some(datetime_to_timestamp(request.since)),
+        to: Some(datetime_to_timestamp(request.until)),
+        group_by_properties: group_by_properties(
+            metric,
+            request.group_by.into_iter().flat_map(|g| g.split(',')),
+        ),
+        window_size: QueryWindowSize::AggregateAll.into(),
+        timezone: None,
+        segmentation_filter: build_segmentation_filter(
+            metric.complete_segmentation_matrix().cloned(),
+        ),
+        filters: build_property_filters(metric.filters.as_ref()),
+        value_property: metric.aggregation_key.clone(),
+        origin_filter: origin_filter.into(),
+        merge_segments: false,
+        attribution: build_attribution(&metric.usage_scope),
+        ..Default::default()
     }
 }
 
@@ -2170,5 +2176,105 @@ mod metric_usage_tests {
             refused.current_context(),
             StoreError::MeteringNotReady
         ));
+    }
+}
+
+#[cfg(test)]
+mod pending_usage_tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId};
+    use meteroid_store::domain::enums::BillingMetricAggregateEnum;
+
+    fn llm_tokens(rated_dimensions: &[&str]) -> BillableMetric {
+        BillableMetric {
+            id: BillableMetricId::new(),
+            name: "LLM tokens".to_owned(),
+            description: None,
+            code: "llm_tokens".to_owned(),
+            catalog_code: "llm_tokens".to_owned(),
+            aggregation_type: BillingMetricAggregateEnum::Sum,
+            aggregation_key: Some("tokens".to_owned()),
+            unit_conversion_factor: None,
+            unit_conversion_rounding: None,
+            segmentation_matrix: None,
+            filters: None,
+            usage_group_key: None,
+            usage_breakdown_key: None,
+            unit_singular: None,
+            unit_plural: None,
+            created_at: NaiveDateTime::default(),
+            updated_at: None,
+            archived_at: None,
+            tenant_id: TenantId::new(),
+            product_family_id: ProductFamilyId::new(),
+            product_id: None,
+            usage_scope: Default::default(),
+            rated_dimensions: rated_dimensions.iter().map(|d| (*d).to_owned()).collect(),
+            attributed_to_type_id: None,
+            attribution_property: None,
+        }
+    }
+
+    fn at(hour: u32) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(2026, 11, 27)
+            .unwrap()
+            .and_hms_opt(hour, 0, 0)
+            .unwrap()
+    }
+
+    /// The live balance was read without the rate card's keys, every call rated at its `*` rate.
+    #[test]
+    fn a_live_balance_read_groups_by_the_rate_cards_keys_as_the_invoice_does() {
+        let metric = llm_tokens(&["model", "token_class"]);
+        let tenant = TenantId::new();
+        let customers = [CustomerId::new()];
+        let pending = pending_usage_request(&PendingUsageRequest {
+            tenant_id: &tenant,
+            keep_last_events: false,
+            customer_ids: &customers,
+            metric: &metric,
+            group_by: Some("api_key"),
+            since: at(0),
+            until: at(1),
+            origin: OriginFilter::All,
+        });
+        assert_eq!(
+            pending.group_by_properties,
+            vec!["model", "token_class", "api_key"]
+        );
+        let invoiced = meter_request(
+            &tenant,
+            false,
+            &customers[0],
+            &metric,
+            Some("api_key"),
+            QueryWindowSize::AggregateAll,
+            &UsagePeriod {
+                start: at(0),
+                end: at(1),
+            },
+        );
+        assert_eq!(pending.group_by_properties, invoiced.group_by_properties);
+    }
+
+    #[test]
+    fn a_pending_read_groups_by_each_of_a_comma_separated_list() {
+        let metric = llm_tokens(&["model"]);
+        let tenant = TenantId::new();
+        let pending = pending_usage_request(&PendingUsageRequest {
+            tenant_id: &tenant,
+            keep_last_events: false,
+            customer_ids: &[CustomerId::new()],
+            metric: &metric,
+            group_by: Some("api_key,model,region"),
+            since: at(0),
+            until: at(1),
+            origin: OriginFilter::All,
+        });
+        assert_eq!(
+            pending.group_by_properties,
+            vec!["model", "api_key", "region"]
+        );
     }
 }

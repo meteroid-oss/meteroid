@@ -1,0 +1,33 @@
+# Real LiteLLM proxies (1.111.0) billing through Meteroid with no code of ours: one exports its
+# OTel v2 traces to the OTLP endpoint, the other sends its generic API logger's batches to the
+# LiteLLM endpoint. Driven by `test_rest_v2_gateway_e2e_litellm`, which serves Meteroid and the
+# mock provider on the host.
+x-litellm: &litellm
+  image: ghcr.io/berriai/litellm:main-stable@sha256:ce00096d012719d58c52cecfa373f7c6256dd1b0ff08f6fa607e10e9628f1f46
+  network_mode: host
+  volumes: ["./:/e2e:ro"]
+
+services:
+  otel:
+    <<: *litellm
+    command: ["--config", "/e2e/otel.yaml", "--port", "${OTEL_PROXY_PORT}"]
+    environment:
+      LITELLM_MASTER_KEY: sk-e2e
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      PROVIDER_API_BASE: http://127.0.0.1:${PROVIDER_PORT}/v1
+      LITELLM_OTEL_V2: "true"
+      OTEL_EXPORTER: otlp_http
+      OTEL_ENDPOINT: ${METEROID_API_BASE}/api/v2/events/otlp/v1/traces
+      OTEL_HEADERS: "Authorization=Bearer ${METEROID_API_KEY}"
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: NO_CONTENT
+      OTEL_BSP_SCHEDULE_DELAY: "1000"
+
+  logger:
+    <<: *litellm
+    command: ["--config", "/e2e/generic-logger.yaml", "--port", "${LOGGER_PROXY_PORT}"]
+    environment:
+      LITELLM_MASTER_KEY: sk-e2e
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      PROVIDER_API_BASE: http://127.0.0.1:${PROVIDER_PORT}/v1
+      GENERIC_LOGGER_ENDPOINT: ${METEROID_API_BASE}/api/v2/events/litellm
+      GENERIC_LOGGER_HEADERS: "Authorization=Bearer ${METEROID_API_KEY}"

@@ -32,6 +32,7 @@ pub mod events;
 pub mod examples;
 pub mod extract;
 pub mod features;
+pub mod gateway;
 pub mod idempotency;
 pub mod ids;
 pub mod invoices;
@@ -94,6 +95,7 @@ fn resource_routes() -> Vec<(&'static str, OpenApiRouter<AppState>)> {
         ("invoices", invoices::routes()),
         ("credit_notes", credit_notes::routes()),
         ("events", events::routes()),
+        ("gateway", gateway::routes()),
         ("usage", usage::routes()),
         ("checkout_sessions", checkout_sessions::routes()),
         ("webhooks", webhooks::routes()),

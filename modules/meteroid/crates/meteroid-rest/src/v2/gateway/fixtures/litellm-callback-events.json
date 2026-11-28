@@ -1,0 +1,241 @@
+{
+ "source": "events_for of the Meteroid LiteLLM callback (modules/adapters/litellm, removed) on litellm-1.111.0-usage.json (end_user acme-gmbh, payer team-a) and litellm-1.111.0-generic-api.json",
+ "events": {
+  "anthropic": [
+   {
+    "event_id": "25baddc2-603c-48f3-a409-d9c3619154b5:input",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "claude-sonnet-4-5",
+     "provider": "anthropic",
+     "token_class": "input",
+     "request_id": "25baddc2-603c-48f3-a409-d9c3619154b5",
+     "tokens": "100",
+     "cost_reported": "0.00189",
+     "cost_currency": "USD",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:22.704301Z"
+   },
+   {
+    "event_id": "25baddc2-603c-48f3-a409-d9c3619154b5:output",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "claude-sonnet-4-5",
+     "provider": "anthropic",
+     "token_class": "output",
+     "request_id": "25baddc2-603c-48f3-a409-d9c3619154b5",
+     "tokens": "50",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:22.704301Z"
+   },
+   {
+    "event_id": "25baddc2-603c-48f3-a409-d9c3619154b5:cache_read",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "claude-sonnet-4-5",
+     "provider": "anthropic",
+     "token_class": "cache_read",
+     "request_id": "25baddc2-603c-48f3-a409-d9c3619154b5",
+     "tokens": "300",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:22.704301Z"
+   },
+   {
+    "event_id": "25baddc2-603c-48f3-a409-d9c3619154b5:cache_write",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "claude-sonnet-4-5",
+     "provider": "anthropic",
+     "token_class": "cache_write",
+     "request_id": "25baddc2-603c-48f3-a409-d9c3619154b5",
+     "tokens": "200",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:22.704301Z"
+   }
+  ],
+  "openai": [
+   {
+    "event_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6:input",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "o4-mini",
+     "provider": "openai",
+     "token_class": "input",
+     "request_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6",
+     "tokens": "800",
+     "cost_reported": "0.002255",
+     "cost_currency": "USD",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:23.659488Z"
+   },
+   {
+    "event_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6:output",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "o4-mini",
+     "provider": "openai",
+     "token_class": "output",
+     "request_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6",
+     "tokens": "200",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:23.659488Z"
+   },
+   {
+    "event_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6:cache_read",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "o4-mini",
+     "provider": "openai",
+     "token_class": "cache_read",
+     "request_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6",
+     "tokens": "200",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:23.659488Z"
+   },
+   {
+    "event_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6:reasoning",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "o4-mini",
+     "provider": "openai",
+     "token_class": "reasoning",
+     "request_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6",
+     "tokens": "100",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:23.659488Z"
+   }
+  ],
+  "bedrock": [
+   {
+    "event_id": "15703da4-93eb-4f96-896a-4f439855ff4f:input",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "converse/anthropic.claude-3-5-sonnet-20240620-v1:0",
+     "provider": "bedrock",
+     "token_class": "input",
+     "request_id": "15703da4-93eb-4f96-896a-4f439855ff4f",
+     "tokens": "100",
+     "cost_reported": "0.00189",
+     "cost_currency": "USD",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:24.111824Z"
+   },
+   {
+    "event_id": "15703da4-93eb-4f96-896a-4f439855ff4f:output",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "converse/anthropic.claude-3-5-sonnet-20240620-v1:0",
+     "provider": "bedrock",
+     "token_class": "output",
+     "request_id": "15703da4-93eb-4f96-896a-4f439855ff4f",
+     "tokens": "50",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:24.111824Z"
+   },
+   {
+    "event_id": "15703da4-93eb-4f96-896a-4f439855ff4f:cache_read",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "converse/anthropic.claude-3-5-sonnet-20240620-v1:0",
+     "provider": "bedrock",
+     "token_class": "cache_read",
+     "request_id": "15703da4-93eb-4f96-896a-4f439855ff4f",
+     "tokens": "300",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:24.111824Z"
+   },
+   {
+    "event_id": "15703da4-93eb-4f96-896a-4f439855ff4f:cache_write",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "converse/anthropic.claude-3-5-sonnet-20240620-v1:0",
+     "provider": "bedrock",
+     "token_class": "cache_write",
+     "request_id": "15703da4-93eb-4f96-896a-4f439855ff4f",
+     "tokens": "200",
+     "payer": "team-a"
+    },
+    "timestamp": "2026-11-26T15:59:24.111824Z"
+   }
+  ],
+  "generic_api": [
+   {
+    "event_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b:input",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "gpt-mock",
+     "provider": "openai",
+     "token_class": "input",
+     "request_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b",
+     "tokens": "800",
+     "cost_reported": "0",
+     "cost_currency": "USD"
+    },
+    "timestamp": "2026-11-26T18:58:21.191873Z"
+   },
+   {
+    "event_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b:output",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "gpt-mock",
+     "provider": "openai",
+     "token_class": "output",
+     "request_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b",
+     "tokens": "200"
+    },
+    "timestamp": "2026-11-26T18:58:21.191873Z"
+   },
+   {
+    "event_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b:cache_read",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "gpt-mock",
+     "provider": "openai",
+     "token_class": "cache_read",
+     "request_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b",
+     "tokens": "200"
+    },
+    "timestamp": "2026-11-26T18:58:21.191873Z"
+   },
+   {
+    "event_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b:reasoning",
+    "code": "llm_tokens",
+    "customer": "ext:acme-gmbh",
+    "properties": {
+     "model": "gpt-mock",
+     "provider": "openai",
+     "token_class": "reasoning",
+     "request_id": "3a1b4976-2df2-4230-9547-3a5abfbcf79b",
+     "tokens": "100"
+    },
+    "timestamp": "2026-11-26T18:58:21.191873Z"
+   }
+  ]
+ }
+}

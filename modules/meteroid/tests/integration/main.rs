@@ -101,6 +101,7 @@ mod test_rest_v2_checkout;
 mod test_rest_v2_customer_entitlements;
 mod test_rest_v2_customers;
 mod test_rest_v2_events;
+mod test_rest_v2_gateway;
 mod test_rest_v2_invoices;
 mod test_rest_v2_subscriptions;
 mod test_rest_v2_usage;

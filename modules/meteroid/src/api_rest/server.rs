@@ -26,7 +26,6 @@ use std::any::Any;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::{
     DefaultMakeSpan, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer,
 };
@@ -255,7 +254,7 @@ where
         .layer(client_auth_layer)
         .layer(auth_layer)
         .layer(DefaultBodyLimit::disable())
-        .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB
+        .layer(axum::middleware::from_fn(body_limit))
         .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(CatchPanicLayer::custom(handle_500))
         // v2's version, request id and problem responses, whoever answered: outside the auth,
@@ -322,6 +321,27 @@ async fn handler_404(uri: Uri) -> impl IntoResponse {
     )
 }
 
+const BODY_LIMIT_BYTES: usize = 1024 * 1024;
+
+/// 1 MB a body, more for what AI gateways export: a declared length above is refused before any
+/// extractor runs, with plain text; a body read past it fails its extractor with a `413`.
+async fn body_limit(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let limit = if crate::api_rest::v2::gateway::PATHS.contains(&request.uri().path()) {
+        crate::api_rest::v2::gateway::MAX_BODY_BYTES
+    } else {
+        BODY_LIMIT_BYTES
+    };
+    let declared = request
+        .headers()
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok()?.parse::<usize>().ok());
+    if declared.is_some_and(|length| length > limit) {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    }
+    next.run(request.map(|body| Body::new(http_body_util::Limited::new(body, limit))))
+        .await
+}
+
 /// The body limit refuses a declared length above it before any extractor runs, with plain text.
 async fn json_payload_too_large(response: Response) -> Response {
     let is_json = response
@@ -333,7 +353,8 @@ async fn json_payload_too_large(response: Response) -> Response {
     }
     let body = Json(RestErrorResponse {
         code: ErrorCode::BadRequest,
-        message: "The request body is larger than 1 MB".to_string(),
+        message: "The request body is larger than 1 MB (16 MB for an AI gateway's export)"
+            .to_string(),
     });
     (StatusCode::PAYLOAD_TOO_LARGE, body).into_response()
 }

@@ -2,8 +2,8 @@ model_list:
   - model_name: gpt-mock
     litellm_params:
       model: openai/gpt-mock
-      api_base: http://provider:8000/v1
+      api_base: os.environ/PROVIDER_API_BASE
       api_key: not-needed
 
 litellm_settings:
-  callbacks: ["meteroid_litellm.handler"]
+  callbacks: ["otel"]
