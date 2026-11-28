@@ -180,7 +180,7 @@ impl CatalogNames {
             // Archived cards too: the prices they rate are read back by their code.
             names.rate_cards = state
                 .store()
-                .list_rate_cards_after(tenant_id, None, true, None, usize::MAX)
+                .list_rate_cards_after(tenant_id, None, None, true, None, usize::MAX)
                 .await?
                 .into_iter()
                 .map(|card| (card.id, card.code))

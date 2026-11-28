@@ -25,7 +25,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { rpcErrorMessage } from '@/lib/rpcError'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { discoverProperties } from '@/rpc/api/eventinsights/v1/eventinsights-EventInsightsService_connectquery'
-import { RateCardUnmatched, type RateCard } from '@/rpc/api/ratecards/v1/models_pb'
+import { RateCardPurpose, RateCardUnmatched, type RateCard } from '@/rpc/api/ratecards/v1/models_pb'
 import {
   createRateCard,
   listRateCards,
@@ -98,6 +98,7 @@ export const NewRateCardDialog = ({
   creditUnitId,
   from,
   currency,
+  purpose = RateCardPurpose.PRICE,
   onClose,
   onCreated,
 }: {
@@ -105,6 +106,8 @@ export const NewRateCardDialog = ({
   creditUnitId?: string
   from?: PriceRates
   currency?: string
+  /** A cost card records what the usage costs (the AI module's cost book), never a price. */
+  purpose?: RateCardPurpose
   onClose: () => void
   onCreated: (card: RateCard) => void
 }) => {
@@ -140,6 +143,7 @@ export const NewRateCardDialog = ({
         unitSize: data.unitSize,
         onUnmatched:
           from?.onUnmatched === 'ignore' ? RateCardUnmatched.IGNORE : RateCardUnmatched.HOLD,
+        purpose,
       })
       .catch(error => {
         toast.error(rpcErrorMessage(error, 'The rate card could not be created'))
@@ -163,7 +167,8 @@ export const NewRateCardDialog = ({
           }
         ))
     await listed()
-    if (rated) toast.success(from ? "Rate card created with the price's rates" : 'Rate card created')
+    if (rated)
+      toast.success(from ? "Rate card created with the price's rates" : 'Rate card created')
     onCreated(card)
   }
 
@@ -171,7 +176,13 @@ export const NewRateCardDialog = ({
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
-          <DialogTitle>{from ? 'Save as a rate card' : 'New rate card'}</DialogTitle>
+          <DialogTitle>
+            {from
+              ? 'Save as a rate card'
+              : purpose === RateCardPurpose.COST
+                ? 'New cost card'
+                : 'New rate card'}
+          </DialogTitle>
         </DialogHeader>
         <Form {...methods}>
           <form
@@ -225,34 +236,34 @@ export const NewRateCardDialog = ({
               </p>
             ) : (
               <>
-            <GenericFormField
-              name="dimensions"
-              label="Rated by"
-              description="Event properties, such as model and token type. The first decides between rates equally specific."
-              control={methods.control}
-              render={({ field }) => (
-                <AutocompleteTags
-                  value={field.value}
-                  onChange={field.onChange}
-                  items={items}
-                  isLoading={isLoading}
-                  placeholder="model, token_type"
-                  emptyText="No property seen on this metric's events. Type one and press Enter."
+                <GenericFormField
+                  name="dimensions"
+                  label="Rated by"
+                  description="Event properties, such as model and token type. The first decides between rates equally specific."
+                  control={methods.control}
+                  render={({ field }) => (
+                    <AutocompleteTags
+                      value={field.value}
+                      onChange={field.onChange}
+                      items={items}
+                      isLoading={isLoading}
+                      placeholder="model, token_type"
+                      emptyText="No property seen on this metric's events. Type one and press Enter."
+                    />
+                  )}
                 />
-              )}
-            />
-            <SelectFormField
-              name="unitSize"
-              label="Rates"
-              control={methods.control}
-              containerClassName="max-w-[12rem]"
-            >
-              {UNIT_SIZES.map(size => (
-                <SelectItem key={size.value} value={size.value}>
-                  {unit?.singular ? unitSizeLabel(size.value, unit) : size.label}
-                </SelectItem>
-              ))}
-            </SelectFormField>
+                <SelectFormField
+                  name="unitSize"
+                  label="Rates"
+                  control={methods.control}
+                  containerClassName="max-w-[12rem]"
+                >
+                  {UNIT_SIZES.map(size => (
+                    <SelectItem key={size.value} value={size.value}>
+                      {unit?.singular ? unitSizeLabel(size.value, unit) : size.label}
+                    </SelectItem>
+                  ))}
+                </SelectFormField>
               </>
             )}
             {creditUnit && (

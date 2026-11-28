@@ -190,6 +190,8 @@ const CATALOG: &[CopiedTable] = &[
         mapped: &["plan_version_id", "annex_template_id"],
         ..table("plan_version_annex_template", OF_TENANT)
     },
+    // The modules turned on go with the cost cards they make usable.
+    table("tenant_module", OF_TENANT),
 ];
 
 const INVOICING: &[CopiedTable] = &[

@@ -16699,6 +16699,15 @@
             }
           },
           {
+            "name": "purpose",
+            "in": "query",
+            "description": "Only the cards of this purpose; price cards when left out.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RateCardPurpose"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -16809,6 +16818,27 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A cost card while the AI module is off",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Meteroid-Version": {
+                "$ref": "#/components/headers/Meteroid-Version"
+              },
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            }
           },
           "409": {
             "description": "The code is taken",
@@ -28628,6 +28658,10 @@
             "$ref": "#/components/schemas/Unmatched",
             "description": "What usage no key matches does: `hold` (the default) keeps the invoice waiting until it\nis rated, `ignore` leaves it unbilled."
           },
+          "purpose": {
+            "$ref": "#/components/schemas/RateCardPurpose",
+            "description": "`cost` needs the AI module on for the tenant; its unmatched usage is always ignored."
+          },
           "unit_size": {
             "type": [
               "string",
@@ -37010,6 +37044,7 @@
           "denomination",
           "unit_size",
           "on_unmatched",
+          "purpose",
           "archived",
           "created_at"
         ],
@@ -37067,6 +37102,9 @@
           "on_unmatched": {
             "$ref": "#/components/schemas/Unmatched",
             "description": "What usage no key matches does: `hold` keeps the invoice waiting until it is rated,\n`ignore` leaves it unbilled."
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/RateCardPurpose"
           },
           "rates": {
             "type": [
@@ -37246,6 +37284,14 @@
           }
         },
         "additionalProperties": false
+      },
+      "RateCardPurpose": {
+        "type": "string",
+        "description": "What a card's rates are: the prices plans charge (`price`), or what the usage costs the\ntenant (`cost`, a cost book with the AI module: never named by a price, one live per metric).",
+        "x-extensible-enum": [
+          "price",
+          "cost"
+        ]
       },
       "RateChange": {
         "type": "object",

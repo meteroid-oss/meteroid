@@ -339,10 +339,15 @@ async fn check_charge_refs_tx(
             .map_err(|_| missing("metric", id.to_string()))?;
     }
     for id in rate_cards {
-        diesel_models::rate_cards::RateCardRow::find(conn, tenant_id, id)
+        let card = diesel_models::rate_cards::RateCardRow::find(conn, tenant_id, id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .ok_or_else(|| missing("rate card", id.to_string()))?;
+        if card.purpose == diesel_models::enums::RateCardPurposeEnum::Cost {
+            return Err(Report::new(
+                crate::domain::rate_cards::cost_card_never_prices(&card.code),
+            ));
+        }
     }
     for id in credit_units {
         diesel_models::credit_units::CreditUnitRow::find_by_id(conn, tenant_id, id)

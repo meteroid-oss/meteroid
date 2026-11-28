@@ -307,7 +307,11 @@ async fn the_currencies_and_coupons_preset_prices_three_currencies_and_applies_c
     assert_eq!(enterprise.self_service_rank, Some(4));
     assert!(enterprise.pricing_sales_led && enterprise.pricing_hide_price);
 
-    let cards = setup.store.list_rate_cards(tenant_id, None).await.unwrap();
+    let cards = setup
+        .store
+        .list_rate_cards(tenant_id, None, None)
+        .await
+        .unwrap();
     let [card] = cards.as_slice() else {
         panic!("one rate card, got {}", cards.len());
     };

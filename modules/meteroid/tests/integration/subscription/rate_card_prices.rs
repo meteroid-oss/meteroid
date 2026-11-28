@@ -14,7 +14,8 @@ use meteroid_store::clients::usage::{
 use meteroid_store::domain::price_components::UsagePricingModel;
 use meteroid_store::domain::products::ProductNew;
 use meteroid_store::domain::rate_cards::{
-    RateCardDenomination, RateCardNew, RateCardRateInput, RateCardRatesSet, RateCardUnmatched,
+    RateCardDenomination, RateCardNew, RateCardPurpose, RateCardRateInput, RateCardRatesSet,
+    RateCardUnmatched,
 };
 use meteroid_store::domain::{Invoice, UsagePeriod};
 use meteroid_store::repositories::RateCardsInterface;
@@ -119,6 +120,7 @@ async fn rate_card(
                 denomination: RateCardDenomination::Money,
                 unit_size,
                 on_unmatched,
+                purpose: RateCardPurpose::Price,
             },
         )
         .await

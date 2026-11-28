@@ -96,6 +96,7 @@ impl RateCardRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+        purpose: Option<crate::enums::RateCardPurposeEnum>,
         include_archived: bool,
         after: Option<RateCardId>,
         limit: i64,
@@ -103,6 +104,9 @@ impl RateCardRow {
         use crate::schema::rate_card::dsl as c;
 
         let mut query = c::rate_card.filter(c::tenant_id.eq(tenant_id)).into_boxed();
+        if let Some(purpose) = purpose {
+            query = query.filter(c::purpose.eq(purpose));
+        }
         if !include_archived {
             query = query.filter(c::archived_at.is_null());
         }
@@ -124,10 +128,12 @@ impl RateCardRow {
             .into_db_result()
     }
 
+    /// Every purpose when `purpose` is None.
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+        purpose: Option<crate::enums::RateCardPurposeEnum>,
     ) -> DbResult<Vec<RateCardRow>> {
         use crate::schema::rate_card::dsl as c;
 
@@ -139,6 +145,9 @@ impl RateCardRow {
             .into_boxed();
         if let Some(metric_id) = metric_id {
             query = query.filter(c::metric_id.eq(metric_id));
+        }
+        if let Some(purpose) = purpose {
+            query = query.filter(c::purpose.eq(purpose));
         }
         crate::debug_sql(&query);
         query

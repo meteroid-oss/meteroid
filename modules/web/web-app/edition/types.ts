@@ -192,6 +192,8 @@ export interface NavMainSection {
   items: NavMainItem[]
   /** What waits on the caller, by entry title. */
   useCounts?: () => Record<string, number>
+  /** Whether the section shows at all, e.g. a module the tenant turned on; shown when unset. */
+  useVisible?: () => boolean
 }
 
 /** A column of the customer list, after the name. */

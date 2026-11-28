@@ -453,6 +453,14 @@ pub enum ActivityType {
     #[strum(serialize = "usage_events.voided")]
     #[serde(rename = "usage_events.voided")]
     UsageEventsVoided,
+    /// A module turned on or off for the tenant, the tenant being the entity; `metadata` names
+    /// the module.
+    #[strum(serialize = "tenant.module_enabled")]
+    #[serde(rename = "tenant.module_enabled")]
+    TenantModuleEnabled,
+    #[strum(serialize = "tenant.module_disabled")]
+    #[serde(rename = "tenant.module_disabled")]
+    TenantModuleDisabled,
 
     #[strum(serialize = "payment_reminder.enrolled")]
     #[serde(rename = "payment_reminder.enrolled")]

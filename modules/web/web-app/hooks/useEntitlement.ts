@@ -21,6 +21,8 @@ export const entitlementCodes = {
   EMAIL_CUSTOMIZATION: 'email_customization',
   QUOTES_FULL: 'quotes_full',
   MINIMUM_COMMITMENTS: 'minimum_commitments',
+  /** The AI module (an Enterprise module); core reads it for the AI operator sandbox. */
+  AI: 'ai',
 } as const
 
 /**

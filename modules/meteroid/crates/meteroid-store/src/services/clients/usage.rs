@@ -241,6 +241,14 @@ pub enum MetricUsageBreakdown {
     None,
     Customer,
     Property(String),
+    /// By customer, then by each of these properties.
+    CustomerAndProperties(Vec<String>),
+}
+
+impl MetricUsageBreakdown {
+    pub fn by_customer(&self) -> bool {
+        matches!(self, Self::Customer | Self::CustomerAndProperties(_))
+    }
 }
 
 /// A metric's usage over a period, as billing reads it: its filters, its segmentation matrix as

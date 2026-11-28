@@ -164,6 +164,9 @@ pub mod gates {
     /// Per-kind settings, audiences, sender settings and test sends of customer emails, and the
     /// copy of payment reminder steps.
     pub const EMAIL_CUSTOMIZATION: FeatureCode = FeatureCode::new("email_customization");
+    /// The AI module (cost book, AI margin, gateway integrations): the license lets a tenant turn
+    /// it on; core refuses cost cards unless it is on.
+    pub const AI: FeatureCode = FeatureCode::new("ai");
     /// The portal cancel flow, and renewal notices of periods, end dates and cancellations
     /// (term renewals are noticed without it).
     pub const RETENTION: FeatureCode = FeatureCode::new("retention");
@@ -689,6 +692,40 @@ pub async fn ensure_portal_self_service(
         Err(tonic::Status::permission_denied(
             PORTAL_SELF_SERVICE_NOT_IN_PLAN,
         ))
+    }
+}
+
+pub const AI_MODULE_OFF: &str =
+    "The AI module is off for this tenant: turn it on in Settings, under AI.";
+
+/// Whether the AI module runs for the tenant: its organization holds the gate and the tenant
+/// turned the module on.
+pub async fn ai_module_open(
+    resolver: &dyn Entitlements,
+    store: &Store,
+    tenant_id: TenantId,
+) -> meteroid_store::StoreResult<bool> {
+    use meteroid_store::repositories::tenant_modules::{AI_MODULE, TenantModulesInterface};
+    use meteroid_store::repositories::tenants::TenantInterface;
+
+    let tenant = store.find_tenant_by_id(tenant_id).await?;
+    Ok(
+        tenant_gate_open(resolver, tenant.organization.id, tenant_id, gates::AI).await
+            && store.is_tenant_module_enabled(tenant_id, AI_MODULE).await?,
+    )
+}
+
+pub async fn ensure_ai_module_open(
+    resolver: &dyn Entitlements,
+    store: &Store,
+    tenant_id: TenantId,
+) -> Result<(), tonic::Status> {
+    match ai_module_open(resolver, store, tenant_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(tonic::Status::failed_precondition(AI_MODULE_OFF)),
+        Err(e) => Err(tonic::Status::internal(format!(
+            "Failed to resolve the AI module: {e}"
+        ))),
     }
 }
 

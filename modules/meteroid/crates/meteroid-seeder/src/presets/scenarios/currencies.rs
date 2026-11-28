@@ -205,6 +205,7 @@ fn llm_rate_card(effective_from: NaiveDate) -> RateCardSpec {
         dimensions: vec![MODEL, TOKEN_TYPE],
         unit_size: PER_MILLION,
         effective_from,
+        purpose: meteroid_store::domain::rate_cards::RateCardPurpose::Price,
         rates: vec![
             llm_rate(
                 "gpt-4o",

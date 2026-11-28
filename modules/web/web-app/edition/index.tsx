@@ -73,7 +73,9 @@ export const useVisibleItems = <T extends { useVisible: (ctx: C) => boolean }, C
 export const useNavMainSections = (): (NavMainSection & { counts: Record<string, number> })[] => {
   const sections: (NavMainSection & { counts: Record<string, number> })[] = []
   for (const section of slotItems('layout.navMain')) {
+    const visible = section.useVisible?.() ?? true
     const counts = section.useCounts?.() ?? {}
+    if (!visible) continue
     const same = sections.find(other => other.title === section.title)
     if (same) {
       same.items = [...same.items, ...section.items]

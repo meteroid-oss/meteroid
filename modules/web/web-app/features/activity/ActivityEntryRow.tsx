@@ -219,7 +219,10 @@ function rateCardChangeSubtitle(md: Record<string, unknown>): string | undefined
   const withdrawn = Array.isArray(md.withdrawn) ? md.withdrawn.length : 0
   const removed = changes.filter(c => c.to === null || c.to === undefined).length
   const set = changes.length - removed
-  const done = [set && `${set} ${set === 1 ? 'rate' : 'rates'} set`, removed && `${removed} removed`]
+  const done = [
+    set && `${set} ${set === 1 ? 'rate' : 'rates'} set`,
+    removed && `${removed} removed`,
+  ]
     .filter(Boolean)
     .join(', ')
   const from = typeof md.effective_from === 'string' ? md.effective_from : undefined
@@ -297,6 +300,18 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
         icon: <Receipt className="h-4 w-4 text-success" />,
         title: <>{entityRef(entry, 'Invoice', 'Invoice')} marked as paid</>,
       }
+    case 'tenant.module_enabled':
+    case 'tenant.module_disabled': {
+      const module = typeof md.module === 'string' ? md.module.toUpperCase() : 'A'
+      return {
+        icon: <ToggleRight className="h-4 w-4 text-muted-foreground" />,
+        title: (
+          <>
+            {module} module turned {entry.activityType === 'tenant.module_enabled' ? 'on' : 'off'}
+          </>
+        ),
+      }
+    }
     case 'usage_events.voided': {
       const count = typeof md.count === 'number' ? md.count : undefined
       return {

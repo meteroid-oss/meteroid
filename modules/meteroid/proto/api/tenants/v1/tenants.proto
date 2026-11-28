@@ -47,6 +47,8 @@ enum SandboxPreset {
   SANDBOX_PRESET_DEFAULT = 0;
   SANDBOX_PRESET_AI_CREDITS = 1;
   SANDBOX_PRESET_CURRENCIES_AND_COUPONS = 2;
+  // An inference cloud billing tokens by model, with a cost book and the AI module on.
+  SANDBOX_PRESET_AI_OPERATOR = 3;
 }
 
 message CreateTenantRequest {

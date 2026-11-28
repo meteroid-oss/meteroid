@@ -61,7 +61,11 @@ pub async fn list_rate_cards(
 ) -> Result<impl IntoResponse, RestApiError> {
     let cards = state
         .store
-        .list_rate_cards(auth.tenant_id, request.metric_id)
+        .list_rate_cards(
+            auth.tenant_id,
+            request.metric_id,
+            Some(meteroid_store::domain::rate_cards::RateCardPurpose::Price),
+        )
         .await
         .map_err(RestApiError::from)?;
     Ok(Json(RateCardListResponse {

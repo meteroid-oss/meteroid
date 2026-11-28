@@ -4,8 +4,8 @@
 use crate::StoreResult;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::rate_cards::{
-    RateCard, RateCardDenomination, RateCardEntry, RateCardNew, RateCardRatesSet, RateCardUpsert,
-    plan_upsert, rates_changed,
+    RateCard, RateCardDenomination, RateCardEntry, RateCardNew, RateCardPurpose, RateCardRatesSet,
+    RateCardUnmatched, RateCardUpsert, plan_upsert, rates_changed,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
@@ -32,11 +32,13 @@ pub trait RateCardsInterface {
         on_unmatched: Option<crate::domain::rate_cards::RateCardUnmatched>,
     ) -> StoreResult<RateCard>;
 
-    /// Ordered by code, archived cards left out; only the metric's cards when one is given.
+    /// Ordered by code, archived cards left out; only the metric's cards when one is given, and
+    /// only those of `purpose` when one is given.
     async fn list_rate_cards(
         &self,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+        purpose: Option<RateCardPurpose>,
     ) -> StoreResult<Vec<RateCard>>;
 
     /// The tenant's cards after `after` in id order, at most `limit`: a keyset page of API v2.
@@ -44,6 +46,7 @@ pub trait RateCardsInterface {
         &self,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+        purpose: Option<RateCardPurpose>,
         include_archived: bool,
         after: Option<RateCardId>,
         limit: usize,
@@ -92,6 +95,12 @@ fn not_found(id: RateCardId) -> Report<StoreError> {
     Report::new(StoreError::ValueNotFound(format!("rate card {id}")))
 }
 
+fn second_cost_card() -> Report<StoreError> {
+    Report::new(StoreError::InvalidArgument(
+        "a live cost card already rates this metric: archive it first".to_owned(),
+    ))
+}
+
 #[async_trait::async_trait]
 impl RateCardsInterface for Store {
     async fn update_rate_card(
@@ -111,6 +120,11 @@ impl RateCardsInterface for Store {
         self.transaction(|conn| {
             let (actor, name) = (&actor, name.clone());
             async move {
+                let cost = RateCardRow::find_for_update(conn, tenant_id, id)
+                    .await?
+                    .is_some_and(|card| card.purpose == RateCardPurpose::Cost.into());
+                // A cost card's unrated usage stays ignored: it never holds an invoice.
+                let on_unmatched = on_unmatched.filter(|_| !cost);
                 let row = RateCardRow::update_terms(
                     conn,
                     tenant_id,
@@ -176,7 +190,24 @@ impl RateCardsInterface for Store {
                 Some(*unit)
             }
         };
+        if new.purpose == RateCardPurpose::Cost
+            && !RateCardRow::list(
+                &mut conn,
+                new.tenant_id,
+                Some(new.metric_id),
+                Some(RateCardPurpose::Cost.into()),
+            )
+            .await?
+            .is_empty()
+        {
+            return Err(second_cost_card());
+        }
         drop(conn);
+        // Unrated usage on a cost card is an unknown cost, never a reason to hold an invoice.
+        let on_unmatched = match new.purpose {
+            RateCardPurpose::Price => new.on_unmatched,
+            RateCardPurpose::Cost => RateCardUnmatched::Ignore,
+        };
         let row_new = RateCardRowNew {
             id: RateCardId::new(),
             tenant_id: new.tenant_id,
@@ -185,14 +216,21 @@ impl RateCardsInterface for Store {
             metric_id: new.metric_id,
             dimensions: new.dimensions.into_iter().map(Some).collect(),
             credit_unit_id,
-            on_unmatched: new.on_unmatched.into(),
+            on_unmatched: on_unmatched.into(),
             unit_size: new.unit_size,
+            purpose: new.purpose.into(),
         };
         self.transaction(|conn| {
             let (actor, row_new) = (&actor, &row_new);
             async move {
                 let row = row_new.insert(conn).await.map_err(|err| {
-                    if matches!(err.error.current_context(), DatabaseError::UniqueViolation) {
+                    let unique =
+                        matches!(err.error.current_context(), DatabaseError::UniqueViolation);
+                    if unique
+                        && format!("{:?}", err.error).contains("rate_card_live_cost_per_metric")
+                    {
+                        second_cost_card()
+                    } else if unique {
                         Report::new(StoreError::DuplicateValue {
                             entity: "rate card",
                             key: Some(row_new.code.clone()),
@@ -212,6 +250,7 @@ impl RateCardsInterface for Store {
                     "name": card.name,
                     "dimensions": card.dimensions,
                     "unit_size": card.unit_size.normalize().to_string(),
+                    "purpose": card.purpose,
                 }));
                 self.internal
                     .record_audit_tx(conn, card.tenant_id, actor, AuditInput::Activity(activity))
@@ -227,9 +266,10 @@ impl RateCardsInterface for Store {
         &self,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+        purpose: Option<RateCardPurpose>,
     ) -> StoreResult<Vec<RateCard>> {
         let mut conn = self.get_conn().await?;
-        RateCardRow::list(&mut conn, tenant_id, metric_id)
+        RateCardRow::list(&mut conn, tenant_id, metric_id, purpose.map(Into::into))
             .await?
             .into_iter()
             .map(|row| row.try_into().map_err(Report::new))
@@ -240,6 +280,7 @@ impl RateCardsInterface for Store {
         &self,
         tenant_id: TenantId,
         metric_id: Option<BillableMetricId>,
+        purpose: Option<RateCardPurpose>,
         include_archived: bool,
         after: Option<RateCardId>,
         limit: usize,
@@ -249,6 +290,7 @@ impl RateCardsInterface for Store {
             &mut conn,
             tenant_id,
             metric_id,
+            purpose.map(Into::into),
             include_archived,
             after,
             i64::try_from(limit).unwrap_or(i64::MAX),
@@ -302,13 +344,23 @@ impl RateCardsInterface for Store {
                     let card: RateCard = current.try_into()?;
                     return Ok(card);
                 }
+                let cost = current.purpose == RateCardPurpose::Cost.into();
                 let row = RateCardRow::set_archived(
                     conn,
                     tenant_id,
                     id,
                     archived.then(common_clock::now),
                 )
-                .await?
+                .await
+                .map_err(|err| {
+                    let unique =
+                        matches!(err.error.current_context(), DatabaseError::UniqueViolation);
+                    if unique && cost {
+                        second_cost_card()
+                    } else {
+                        err.into()
+                    }
+                })?
                 .ok_or_else(|| not_found(id))?;
                 let card: RateCard = row.try_into()?;
                 let activity = Activity::new(
@@ -398,7 +450,8 @@ impl RateCardsInterface for Store {
                         .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
                         .await?;
                 }
-                if summary.inserted + summary.removed + summary.replaced > 0 {
+                let prices = card.purpose == RateCardPurpose::Price;
+                if prices && summary.inserted + summary.removed + summary.replaced > 0 {
                     diesel_models::billing_controller::BillingControllerRow::retry_failing(
                         conn, tenant_id,
                     )

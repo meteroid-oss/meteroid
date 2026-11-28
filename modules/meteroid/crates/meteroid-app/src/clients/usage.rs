@@ -334,7 +334,7 @@ fn metric_usage_request(
         bail!(StoreError::InvalidArgument("invalid period".to_string()));
     }
     // Metering reads each listed customer apart; only a customer breakdown keeps them apart.
-    if query.customer_ids.len() > 1 && query.breakdown != MetricUsageBreakdown::Customer {
+    if query.customer_ids.len() > 1 && !query.breakdown.by_customer() {
         bail!(StoreError::InvalidArgument(
             "several customers need a customer breakdown".to_string()
         ));
@@ -350,6 +350,7 @@ fn metric_usage_request(
         to: Some(datetime_to_timestamp(query.period.end)),
         group_by_properties: match &query.breakdown {
             MetricUsageBreakdown::Property(property) => vec![property.clone()],
+            MetricUsageBreakdown::CustomerAndProperties(properties) => properties.clone(),
             MetricUsageBreakdown::None | MetricUsageBreakdown::Customer => vec![],
         },
         window_size: match query.grain {
@@ -366,7 +367,7 @@ fn metric_usage_request(
         filters: build_property_filters(metric.filters.as_ref()),
         value_property: metric.aggregation_key.clone(),
         origin_filter: query_meter_request::OriginFilter::All.into(),
-        group_by_customer: query.breakdown == MetricUsageBreakdown::Customer,
+        group_by_customer: query.breakdown.by_customer(),
         top_n: query.top_n.filter(|n| *n > 0),
         ..Default::default()
     })
@@ -377,7 +378,7 @@ fn metric_usage_points(
     response: QueryMeterResponse,
 ) -> StoreResult<Vec<MetricUsagePoint>> {
     // A metering service predating customer grouping answers one row across all customers.
-    let grouped = query.breakdown == MetricUsageBreakdown::Customer || query.top_n.is_some();
+    let grouped = query.breakdown.by_customer() || query.top_n.is_some();
     if grouped && !response.grouping_applied {
         return Err(Report::new(StoreError::MeteringNotReady)
             .attach("the metering service does not break usage down by customer yet"));
@@ -403,11 +404,11 @@ fn metric_usage_points(
             .into_iter()
             .filter_map(|(k, v)| v.value.filter(|s| !s.is_empty()).map(|v| (k, v)))
             .collect();
-        let customer_id = match (&query.breakdown, usage.customer_id) {
-            (MetricUsageBreakdown::Customer, Some(id)) if !usage.other => {
+        let customer_id = match (query.breakdown.by_customer(), usage.customer_id) {
+            (true, Some(id)) if !usage.other => {
                 Some(CustomerId::from_proto(id).map_err(invalid_metering_id)?)
             }
-            (MetricUsageBreakdown::Customer, _) if !usage.other => {
+            (true, _) if !usage.other => {
                 return Err(Report::new(StoreError::MeteringServiceError)
                     .attach("a customer's usage row carries no customer"));
             }
@@ -2020,6 +2021,31 @@ mod metric_usage_tests {
         assert!(request.segmentation_filter.is_some());
         assert!(request.keep_last_events);
         assert_eq!(request.window_size(), QueryWindowSize::AggregateAll);
+    }
+
+    #[test]
+    fn a_customer_and_properties_breakdown_groups_by_both() {
+        use common_domain::ids::BaseId;
+
+        let metric = metric(None);
+        let customers = [CustomerId::new(), CustomerId::new()];
+        let request = metric_usage_request(
+            &TenantId::default(),
+            false,
+            &query(
+                &metric,
+                &customers,
+                MetricUsageBreakdown::CustomerAndProperties(vec![
+                    "model".to_owned(),
+                    "token_class".to_owned(),
+                ]),
+                None,
+            ),
+        )
+        .unwrap();
+        assert!(request.group_by_customer);
+        assert_eq!(request.group_by_properties, vec!["model", "token_class"]);
+        assert_eq!(request.customer_ids.len(), 2);
     }
 
     #[test]

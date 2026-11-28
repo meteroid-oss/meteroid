@@ -11,6 +11,11 @@ pub enum MetricRef {
     Code(String),
 }
 
+/// Attached to a usage cost read refused because the owner has no billing period pricing the
+/// metric in the range: no fee bills that usage there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoBillingPeriod;
+
 /// Whose usage a read covers: all a customer is billed for, or one subscription's share of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsageOwner {

@@ -73,6 +73,7 @@ pub mod rate_cards;
 pub mod slot_transactions;
 pub mod sso;
 pub mod subscriptions;
+pub mod tenant_modules;
 
 pub mod accounting;
 pub mod add_ons;

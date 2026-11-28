@@ -117,6 +117,7 @@ pub mod trial_plans;
 pub mod revenue_stats;
 pub mod subscriptions_lifecycle;
 pub mod tenant_copy;
+pub mod tenant_modules;
 pub mod tenants;
 pub mod users;
 pub mod webhooks;

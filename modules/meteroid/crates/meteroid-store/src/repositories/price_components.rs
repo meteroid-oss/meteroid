@@ -183,6 +183,11 @@ pub(crate) async fn ensure_prices_fit_charge<'a>(
                         "rate card {rate_card_id} not found"
                     )))
                 })?;
+            if card.purpose == diesel_models::enums::RateCardPurposeEnum::Cost {
+                return Err(Report::new(
+                    crate::domain::rate_cards::cost_card_never_prices(&card.code),
+                ));
+            }
             if structure.metric_id() != Some(card.metric_id) {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
                     "Rate card {} rates another metric than the charge bills",

@@ -326,6 +326,10 @@ pub mod sql_types {
     pub struct QuoteStatusEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "RateCardPurposeEnum"))]
+    pub struct RateCardPurposeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "RateCardUnmatchedEnum"))]
     pub struct RateCardUnmatchedEnum;
 
@@ -3587,6 +3591,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::RateCardUnmatchedEnum;
+    use super::sql_types::RateCardPurposeEnum;
 
     rate_card (id) {
         id -> Uuid,
@@ -3601,6 +3606,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         archived_at -> Nullable<Timestamptz>,
         unit_size -> Numeric,
+        purpose -> RateCardPurposeEnum,
     }
 }
 
@@ -4299,6 +4305,14 @@ diesel::table! {
         plan_id -> Uuid,
         product_family_id -> Uuid,
         created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    tenant_module (tenant_id, module) {
+        tenant_id -> Uuid,
+        module -> Text,
+        enabled_at -> Timestamptz,
     }
 }
 
@@ -5025,6 +5039,7 @@ diesel::joinable!(subscription_usage_filter -> subscription (subscription_id));
 diesel::joinable!(subscription_usage_filter -> tenant (tenant_id));
 diesel::joinable!(tax_category -> tenant (tenant_id));
 diesel::joinable!(tenant -> organization (organization_id));
+diesel::joinable!(tenant_module -> tenant (tenant_id));
 diesel::joinable!(trial_offer -> plan_version (fallback_plan_version_id));
 diesel::joinable!(trial_offer -> tenant (tenant_id));
 diesel::joinable!(trial_redemption -> customer (customer_id));

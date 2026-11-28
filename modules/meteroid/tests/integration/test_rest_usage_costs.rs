@@ -1062,6 +1062,47 @@ async fn test_tiered_and_volume_bucket_costs_add_up_to_the_invoice_line_and_are_
     );
 }
 
+/// A tiered fee and rates by region on one metric of one subscription: grouping by region must
+/// not price the tiers per region. The reads refuse two fees pricing a metric at once.
+#[tokio::test]
+async fn test_a_tiered_fee_beside_rates_by_region_is_never_tiered_per_region() {
+    let stream = EventStream::default();
+    let env = Api::start(&stream).await;
+    let shared = env
+        .insert_metric(
+            "shared_traffic",
+            BillingMetricAggregateEnum::Sum,
+            None,
+            None,
+        )
+        .await;
+    let at = |days: i64| start() + Duration::days(days) + Duration::hours(1);
+    stream.add(CUST_SPOTIFY_ID, "shared_traffic", at(0), "eu", 800);
+    stream.add(CUST_SPOTIFY_ID, "shared_traffic", at(1), "us", 800);
+    subscribe(
+        &env.setup,
+        CUST_SPOTIFY_ID,
+        vec![
+            metric_component(
+                "Tiered",
+                shared,
+                UsagePricingModel::Tiered {
+                    tiers: tiers(),
+                    block_size: None,
+                },
+            ),
+            metric_component("By region", shared, matrix()),
+        ],
+    )
+    .await;
+    for group_by in [None, Some("region")] {
+        let (status, body) = env
+            .costs_raw(CUST_SPOTIFY_ID, "shared_traffic", "DAY", group_by)
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{group_by:?}: {body}");
+    }
+}
+
 #[tokio::test]
 async fn test_ranges_and_metrics_are_validated() {
     let env = Env::new().await;

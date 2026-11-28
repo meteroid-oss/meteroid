@@ -605,6 +605,14 @@ pub enum SubscriptionChangeKindEnum {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::RateCardPurposeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum RateCardPurposeEnum {
+    Price,
+    Cost,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::RateCardUnmatchedEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum RateCardUnmatchedEnum {

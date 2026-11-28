@@ -4,8 +4,8 @@ use crate::domain::credit_outlook::UpcomingChange;
 use crate::domain::enums::SubscriptionStatusEnum;
 use crate::domain::usage_costs::{
     CostGranularity, CostUnit, MetricEventCost, MetricEventsPage, MetricRef, MetricRunningCost,
-    RunningTotal, UsageCost, UsageCostRow, UsageOwner, WalletDailyUsage, WalletDailyUsageCost,
-    WalletUsageSpan,
+    NoBillingPeriod, RunningTotal, UsageCost, UsageCostRow, UsageOwner, WalletDailyUsage,
+    WalletDailyUsageCost, WalletUsageSpan,
 };
 use crate::domain::{
     BillableMetric, LineItem, SubscriptionDetails, UsagePeriod, UsagePricingModel,
@@ -25,7 +25,7 @@ use crate::services::invoice_lines::component::{
 };
 use crate::services::invoice_lines::invoice_lines::{BilledSpan, MeteredFee};
 use crate::services::invoices::upcoming::upcoming_invoice_details_on;
-use crate::services::usage_grouping::{foldable, metric_dimensions};
+use crate::services::usage_grouping::{foldable, metric_dimensions, own_dimensions};
 use crate::store::PgConn;
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId, WalletId};
@@ -99,13 +99,6 @@ fn bucket_ceil(ts: NaiveDateTime, granularity: CostGranularity) -> NaiveDateTime
     } else {
         bucket_end(floor, granularity)
     }
-}
-
-fn segmentation_keys(metric: &BillableMetric) -> Vec<&str> {
-    metric
-        .segmentation_matrix
-        .as_ref()
-        .map_or_else(Vec::new, SegmentationMatrix::keys)
 }
 
 /// Whether the metric's segmentation lets an event with these properties through, as the
@@ -423,7 +416,8 @@ impl ServicesEdge {
             };
             return Err(invalid(format!(
                 "the {owner} has no billing period pricing this metric in the requested range"
-            )));
+            ))
+            .attach_opaque(NoBillingPeriod));
         }
         let customer_id = scope.customer_id;
 
@@ -896,10 +890,16 @@ impl ServicesEdge {
             )
         };
 
-        let extra_key = group_by.filter(|key| {
-            metric.usage_group_key.as_deref() != Some(*key)
-                && !segmentation_keys(metric).contains(key)
-        });
+        // A key this window's own price rates by stays in the rating dimensions; one only another
+        // price of the metric rates by is dropped, so tiers never restart per value.
+        let rated_here = |key: &str| {
+            own_dimensions(metric).contains(key)
+                || window
+                    .card
+                    .as_ref()
+                    .is_some_and(|card| card.dimensions.iter().any(|d| d == key))
+        };
+        let extra_key = group_by.filter(|key| !rated_here(key));
         let rating_dimensions = |point: &BucketPoint| {
             let mut dimensions = point.dimensions.clone();
             if let Some(key) = extra_key {

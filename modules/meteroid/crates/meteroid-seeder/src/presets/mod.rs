@@ -28,6 +28,14 @@ pub fn ai_credits_scenario() -> scenarios::domain::Scenario {
     scenarios::ai_credits::ai_credits_scenario()
 }
 
+/// "Fjordline Inference", an EU inference cloud reselling models per 1M tokens through LiteLLM:
+/// the AI operator template, with a price card, a cost card and the AI module on. The
+/// `AI_OPERATOR` sandbox preset.
+pub fn ai_operator_scenario() -> scenarios::domain::Scenario {
+    let now = chrono::Utc::now().naive_utc().date();
+    scenarios::ai_operator::ai_operator_scenario(now)
+}
+
 /// "Acme Analytics", a product-analytics SaaS selling one ladder of plans in USD, EUR and BRL,
 /// with two coupons, an LLM rate card and a sales-led Enterprise plan; its customers subscribe
 /// in their own currency. The `CURRENCIES_AND_COUPONS` sandbox preset.

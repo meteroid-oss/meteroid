@@ -8,16 +8,17 @@ use error_stack::Report;
 use meteroid_grpc::meteroid::api::ratecards::v1::{
     CreateRateCardRequest, CreateRateCardResponse, GetRateCardRequest, GetRateCardResponse,
     ListRateCardChangesRequest, ListRateCardChangesResponse, ListRateCardsRequest,
-    ListRateCardsResponse, LookupRateRequest, LookupRateResponse, RateCardUnmatched,
-    SetRateCardRatesRequest, SetRateCardRatesResponse, rate_cards_service_server::RateCardsService,
+    ListRateCardsResponse, LookupRateRequest, LookupRateResponse, RateCardPurpose,
+    RateCardUnmatched, SetRateCardRatesRequest, SetRateCardRatesResponse,
+    rate_cards_service_server::RateCardsService,
 };
 use meteroid_grpc_mapping::activity::entries::{
     decode_cursor, encode_cursor, entries_to_proto, resolve_limit,
 };
 use meteroid_store::domain::entity_activity::EntityType;
 use meteroid_store::domain::rate_cards::{
-    RateCardDenomination, RateCardKeyRemoval, RateCardNew, RateCardRateInput, RateCardRatesSet,
-    rates_at,
+    self as domain, RateCardDenomination, RateCardKeyRemoval, RateCardNew, RateCardRateInput,
+    RateCardRatesSet, rates_at,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::RateCardsInterface;
@@ -73,6 +74,17 @@ impl RateCardsService for RateCardsServiceComponents {
         let on_unmatched = RateCardUnmatched::try_from(inner.on_unmatched)
             .map(mapping::unmatched_from_proto)
             .map_err(|_| Status::invalid_argument("unknown unmatched policy"))?;
+        let purpose = RateCardPurpose::try_from(inner.purpose)
+            .map(mapping::purpose_from_proto)
+            .map_err(|_| Status::invalid_argument("unknown rate card purpose"))?;
+        if purpose == domain::RateCardPurpose::Cost {
+            meteroid_app::features::ensure_ai_module_open(
+                self.feature_resolver.as_ref(),
+                &self.store,
+                tenant_id,
+            )
+            .await?;
+        }
         let card = self
             .store
             .create_rate_card(
@@ -86,6 +98,7 @@ impl RateCardsService for RateCardsServiceComponents {
                     denomination,
                     unit_size,
                     on_unmatched,
+                    purpose,
                 },
             )
             .await
@@ -101,15 +114,21 @@ impl RateCardsService for RateCardsServiceComponents {
         request: Request<ListRateCardsRequest>,
     ) -> Result<Response<ListRateCardsResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let metric_id = request
-            .into_inner()
+        let inner = request.into_inner();
+        let purpose = match inner.purpose {
+            Some(value) => RateCardPurpose::try_from(value)
+                .map(mapping::purpose_from_proto)
+                .map_err(|_| Status::invalid_argument("unknown rate card purpose"))?,
+            None => domain::RateCardPurpose::Price,
+        };
+        let metric_id = inner
             .billable_metric_id
             .filter(|id| !id.is_empty())
             .map(BillableMetricId::from_proto)
             .transpose()?;
         let cards = self
             .store
-            .list_rate_cards(tenant_id, metric_id)
+            .list_rate_cards(tenant_id, metric_id, Some(purpose))
             .await
             .map_err(store_status)?;
         Ok(Response::new(ListRateCardsResponse {

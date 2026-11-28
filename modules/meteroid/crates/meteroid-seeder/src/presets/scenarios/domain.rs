@@ -89,6 +89,8 @@ pub struct RateCardSpec {
     pub unit_size: Decimal,
     pub effective_from: NaiveDate,
     pub rates: Vec<RateSpec>,
+    /// A cost card records what the usage costs the tenant; a price card what plans charge.
+    pub purpose: meteroid_store::domain::rate_cards::RateCardPurpose,
 }
 
 /// A key of a rate card, a pattern per dimension (`*`: any value), and its rate by currency.

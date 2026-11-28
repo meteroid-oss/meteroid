@@ -76,6 +76,7 @@ const sandboxPresetLabels: Record<SandboxPreset, string> = {
   [SandboxPreset.DEFAULT]: 'Team collaboration SaaS',
   [SandboxPreset.AI_CREDITS]: 'AI API with prepaid credits (live usage)',
   [SandboxPreset.CURRENCIES_AND_COUPONS]: 'Plans in three currencies, with coupons',
+  [SandboxPreset.AI_OPERATOR]: 'AI inference cloud with a cost book and margin',
 }
 
 // The selects hold the enums as strings; the schema turns them back into numbers.
@@ -174,12 +175,15 @@ export const CreateTenantFields = ({ methods }: { methods: TenantForm }) => {
   const isProduction = Number(environment) === TenantEnvironmentEnum.PRODUCTION
 
   const adminSandboxes = useEntitlement(entitlementCodes.ADMIN_SANDBOXES)
+  const aiModule = useEntitlement(entitlementCodes.AI)
   const presets = useMemo(
-    () =>
-      adminSandboxes
-        ? [SandboxPreset.DEFAULT, SandboxPreset.CURRENCIES_AND_COUPONS, SandboxPreset.AI_CREDITS]
-        : [SandboxPreset.DEFAULT, SandboxPreset.CURRENCIES_AND_COUPONS],
-    [adminSandboxes]
+    () => [
+      SandboxPreset.DEFAULT,
+      SandboxPreset.CURRENCIES_AND_COUPONS,
+      ...(adminSandboxes ? [SandboxPreset.AI_CREDITS] : []),
+      ...(aiModule ? [SandboxPreset.AI_OPERATOR] : []),
+    ],
+    [adminSandboxes, aiModule]
   )
   useEffect(() => {
     if (!presets.includes(Number(sandboxPreset))) {

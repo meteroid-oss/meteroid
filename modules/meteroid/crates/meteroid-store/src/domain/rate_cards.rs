@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
     BaseId, BillableMetricId, CreditUnitId, RateCardEntryId, RateCardId, TenantId,
 };
-use diesel_models::enums::RateCardUnmatchedEnum;
+use diesel_models::enums::{RateCardPurposeEnum, RateCardUnmatchedEnum};
 use diesel_models::rate_cards::{RateCardEntryRow, RateCardRow};
 use o2o::o2o;
 use rust_decimal::Decimal;
@@ -20,6 +20,18 @@ pub enum RateCardUnmatched {
     Hold,
     /// The usage is left unbilled, on purpose.
     Ignore,
+}
+
+/// What a card's rates are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, o2o, Serialize, Deserialize)]
+#[map_owned(RateCardPurposeEnum)]
+pub enum RateCardPurpose {
+    /// What plans charge for the usage: prices name the card.
+    #[default]
+    Price,
+    /// What the usage costs the tenant (a cost book): never named by a price, at most one live
+    /// per metric. Usage no key rates has an unknown cost, never a held invoice.
+    Cost,
 }
 
 /// What a card's rates count: money, a rate per currency on each entry, or one credit unit.
@@ -41,6 +53,7 @@ pub struct RateCard {
     /// Rates are per this many units of the metric (1000000: per 1M tokens).
     pub unit_size: Decimal,
     pub on_unmatched: RateCardUnmatched,
+    pub purpose: RateCardPurpose,
     pub created_at: DateTime<Utc>,
     /// Off the catalog for new prices; the prices rated by it keep rating.
     pub archived_at: Option<DateTime<Utc>>,
@@ -68,10 +81,17 @@ impl TryFrom<RateCardRow> for RateCard {
             },
             unit_size: row.unit_size,
             on_unmatched: row.on_unmatched.into(),
+            purpose: row.purpose.into(),
             created_at: row.created_at,
             archived_at: row.archived_at,
         })
     }
+}
+
+pub fn cost_card_never_prices(code: &str) -> StoreError {
+    StoreError::InvalidArgument(format!(
+        "Rate card {code} is a cost card: it records what usage costs, never a price"
+    ))
 }
 
 /// A supported currency code, upper-cased.
@@ -179,6 +199,7 @@ pub struct RateCardNew {
     pub denomination: RateCardDenomination,
     pub unit_size: Decimal,
     pub on_unmatched: RateCardUnmatched,
+    pub purpose: RateCardPurpose,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -578,6 +599,7 @@ mod tests {
             denomination: RateCardDenomination::Money,
             unit_size: Decimal::ONE,
             on_unmatched: RateCardUnmatched::Hold,
+            purpose: RateCardPurpose::Price,
             created_at: common_clock::now(),
             archived_at: None,
         }

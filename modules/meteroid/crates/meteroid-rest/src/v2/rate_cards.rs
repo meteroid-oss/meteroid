@@ -83,6 +83,7 @@ pub struct RateCard {
     /// What usage no key matches does: `hold` keeps the invoice waiting until it is rated,
     /// `ignore` leaves it unbilled.
     pub on_unmatched: crate::v2::charges::Unmatched,
+    pub purpose: RateCardPurpose,
     /// Archived: it prices no new charge; the prices it rates keep rating.
     pub archived: bool,
     pub created_at: ApiDateTime,
@@ -99,6 +100,34 @@ pub struct RateCard {
 
 crate::v2_list!(RateCardList, RateCard);
 
+/// What a card's rates are: the prices plans charge (`price`), or what the usage costs the
+/// tenant (`cost`, a cost book with the AI module: never named by a price, one live per metric).
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RateCardPurpose {
+    #[default]
+    Price,
+    Cost,
+}
+
+impl From<RateCardPurpose> for domain::RateCardPurpose {
+    fn from(purpose: RateCardPurpose) -> Self {
+        match purpose {
+            RateCardPurpose::Price => domain::RateCardPurpose::Price,
+            RateCardPurpose::Cost => domain::RateCardPurpose::Cost,
+        }
+    }
+}
+
+impl From<domain::RateCardPurpose> for RateCardPurpose {
+    fn from(purpose: domain::RateCardPurpose) -> Self {
+        match purpose {
+            domain::RateCardPurpose::Price => RateCardPurpose::Price,
+            domain::RateCardPurpose::Cost => RateCardPurpose::Cost,
+        }
+    }
+}
+
 #[derive(Deserialize, IntoParams, Debug, Clone, Default)]
 #[into_params(parameter_in = Query)]
 pub struct RateCardListQuery {
@@ -107,6 +136,8 @@ pub struct RateCardListQuery {
     /// Archived cards too.
     #[serde(default)]
     pub include_archived: bool,
+    /// Only the cards of this purpose; price cards when left out.
+    pub purpose: Option<RateCardPurpose>,
     pub limit: Option<u32>,
     pub after: Option<String>,
 }
@@ -241,6 +272,7 @@ fn to_api(
             domain::RateCardUnmatched::Hold => crate::v2::charges::Unmatched::Hold,
             domain::RateCardUnmatched::Ignore => crate::v2::charges::Unmatched::Ignore,
         },
+        purpose: card.purpose.into(),
         archived: card.archived_at.is_some(),
         created_at: card.created_at.into(),
         at,
@@ -325,6 +357,7 @@ pub async fn list_rate_cards(
         .list_rate_cards_after(
             auth.tenant_id,
             metric,
+            Some(query.purpose.unwrap_or_default().into()),
             query.include_archived,
             page_query
                 .cursor()?
@@ -496,6 +529,9 @@ pub struct CreateRateCard {
     /// is rated, `ignore` leaves it unbilled.
     #[serde(default)]
     pub on_unmatched: crate::v2::charges::Unmatched,
+    /// `cost` needs the AI module on for the tenant; its unmatched usage is always ignored.
+    #[serde(default)]
+    pub purpose: RateCardPurpose,
 }
 
 /// A merge patch of what a card may change: its name and what unmatched usage does.
@@ -528,6 +564,7 @@ fn unmatched(on: crate::v2::charges::Unmatched) -> domain::RateCardUnmatched {
     request_body = CreateRateCard,
     responses(
         (status = 201, description = "Created, without rates", body = RateCard),
+        (status = 403, description = "A cost card while the AI module is off", body = Problem, content_type = "application/problem+json"),
         (status = 409, description = "The code is taken", body = Problem, content_type = "application/problem+json"),
         (status = 422, description = "A field is refused", body = Problem, content_type = "application/problem+json"),
     ),
@@ -620,6 +657,18 @@ pub async fn create_rate_card(
             domain::RateCardDenomination::CreditUnit(unit)
         }
     };
+    if body.purpose == RateCardPurpose::Cost {
+        meteroid_app::features::ensure_ai_module_open(
+            state.feature_resolver.as_ref(),
+            &state.store,
+            tenant_id,
+        )
+        .await
+        .map_err(|status| match status.code() {
+            tonic::Code::FailedPrecondition => Problem::feature_not_available(status.message()),
+            _ => Problem::gated(status),
+        })?;
+    }
     let code = body.code.clone();
     let card = state
         .store
@@ -634,6 +683,7 @@ pub async fn create_rate_card(
                 denomination,
                 unit_size,
                 on_unmatched: unmatched(body.on_unmatched),
+                purpose: body.purpose.into(),
             },
         )
         .await

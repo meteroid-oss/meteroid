@@ -33,6 +33,8 @@ message CreateRateCardRequest {
   RateCardUnmatched on_unmatched = 7;
   // Decimal string, positive; 1 when unset.
   optional string unit_size = 8;
+  // A cost card needs the AI module on for the tenant.
+  RateCardPurpose purpose = 9;
 }
 message CreateRateCardResponse {
   RateCard card = 1;
@@ -41,6 +43,8 @@ message CreateRateCardResponse {
 message ListRateCardsRequest {
   // Only the cards that rate this metric.
   optional string billable_metric_id = 1;
+  // Only the cards of this purpose; price cards when unset.
+  optional RateCardPurpose purpose = 2;
 }
 message ListRateCardsResponse {
   repeated RateCard cards = 1;

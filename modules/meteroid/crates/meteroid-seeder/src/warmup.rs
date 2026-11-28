@@ -340,7 +340,7 @@ async fn rated_dimensions(
     today: NaiveDate,
 ) -> StoreResult<HashMap<BillableMetricId, Vec<usage::Dimension>>> {
     let mut rated = HashMap::new();
-    for card in store.list_rate_cards(tenant_id, None).await? {
+    for card in store.list_rate_cards(tenant_id, None, None).await? {
         if rated.contains_key(&card.metric_id) {
             continue;
         }

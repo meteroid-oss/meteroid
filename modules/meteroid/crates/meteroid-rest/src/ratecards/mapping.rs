@@ -103,6 +103,7 @@ pub fn create_req_to_domain(
             rest::RateCardUnmatched::Hold => domain::RateCardUnmatched::Hold,
             rest::RateCardUnmatched::Ignore => domain::RateCardUnmatched::Ignore,
         },
+        purpose: domain::RateCardPurpose::Price,
     })
 }
 

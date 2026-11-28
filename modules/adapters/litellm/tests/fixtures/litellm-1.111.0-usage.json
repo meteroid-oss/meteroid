@@ -1,0 +1,111 @@
+{
+  "litellm_version": "1.111.0",
+  "source": "tests/fixtures/capture.py run in ghcr.io/berriai/litellm:main-stable (LiteLLM 1.111.0), each provider answered by a mock with its documented usage fields",
+  "payloads": {
+    "anthropic": {
+      "id": "chatcmpl-3bfa4c4e-f2a0-47cf-81ca-28a2c00a1b10",
+      "litellm_call_id": "25baddc2-603c-48f3-a409-d9c3619154b5",
+      "call_type": "acompletion",
+      "model": "claude-sonnet-4-5",
+      "model_group": "",
+      "custom_llm_provider": "anthropic",
+      "prompt_tokens": 600,
+      "completion_tokens": 50,
+      "total_tokens": 650,
+      "response_cost": 0.00189,
+      "endTime": 1795708762.704301,
+      "end_user": null,
+      "metadata": {
+        "usage_object": {
+          "completion_tokens": 50,
+          "prompt_tokens": 600,
+          "total_tokens": 650,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 50
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 300,
+            "text_tokens": 100,
+            "image_tokens": null,
+            "video_tokens": null,
+            "initial_prompt_tokens": null,
+            "cache_write_tokens": 200,
+            "cache_creation_tokens": 200
+          },
+          "cache_creation_input_tokens": 200,
+          "cache_read_input_tokens": 300,
+          "iterations": null,
+          "inference_geo": null,
+          "speed": null,
+          "service_tier": null
+        }
+      }
+    },
+    "openai": {
+      "id": "chatcmpl-1",
+      "litellm_call_id": "d5af9ba6-2f38-4795-a3f0-b625ecdc7af6",
+      "call_type": "acompletion",
+      "model": "o4-mini",
+      "model_group": "",
+      "custom_llm_provider": "openai",
+      "prompt_tokens": 1000,
+      "completion_tokens": 300,
+      "total_tokens": 1300,
+      "response_cost": 0.002255,
+      "endTime": 1795708763.659488,
+      "end_user": null,
+      "metadata": {
+        "usage_object": {
+          "completion_tokens": 300,
+          "prompt_tokens": 1000,
+          "total_tokens": 1300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 100
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 200
+          }
+        }
+      }
+    },
+    "bedrock": {
+      "id": "chatcmpl-9602dae7-7095-4c8e-9f2d-f21b6c038bed",
+      "litellm_call_id": "15703da4-93eb-4f96-896a-4f439855ff4f",
+      "call_type": "acompletion",
+      "model": "converse/anthropic.claude-3-5-sonnet-20240620-v1:0",
+      "model_group": "",
+      "custom_llm_provider": "bedrock",
+      "prompt_tokens": 600,
+      "completion_tokens": 50,
+      "total_tokens": 650,
+      "response_cost": 0.00189,
+      "endTime": 1795708764.111824,
+      "end_user": null,
+      "metadata": {
+        "usage_object": {
+          "completion_tokens": 50,
+          "prompt_tokens": 600,
+          "total_tokens": 650,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 50
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 300,
+            "text_tokens": 100,
+            "image_tokens": null,
+            "video_tokens": null,
+            "initial_prompt_tokens": null,
+            "cache_write_tokens": 200,
+            "cache_creation_tokens": 200
+          },
+          "cache_creation_input_tokens": 200,
+          "cache_read_input_tokens": 300
+        }
+      }
+    }
+  }
+}

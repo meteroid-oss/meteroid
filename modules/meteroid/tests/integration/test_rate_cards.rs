@@ -41,6 +41,7 @@ async fn a_rate_card_syncs_in_bulk_and_rates_by_the_most_specific_key() {
             credit_unit_id: None,
             on_unmatched: grpc::RateCardUnmatched::Hold.into(),
             unit_size: Some("1000000".into()),
+            ..Default::default()
         })
         .await
         .expect("create")
@@ -241,6 +242,7 @@ async fn a_rate_cards_changes_are_logged_with_who_made_them() {
             credit_unit_id: None,
             on_unmatched: grpc::RateCardUnmatched::Hold.into(),
             unit_size: None,
+            ..Default::default()
         })
         .await
         .expect("create")
@@ -406,6 +408,7 @@ async fn a_rate_card_rates_a_metric_declaring_its_dimension_values() {
             credit_unit_id: None,
             on_unmatched: grpc::RateCardUnmatched::Hold.into(),
             unit_size: None,
+            ..Default::default()
         })
         .await
         .expect("a card rates a metric with a segmentation matrix")
