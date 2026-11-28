@@ -185,6 +185,37 @@ pub async fn planless_customer_ids(
     .into_db_result()
 }
 
+/// What an eligibility rule reads of a customer: its billing address and custom properties.
+#[derive(QueryableByName, Debug, Clone)]
+pub struct PlanlessFacts {
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Jsonb>)]
+    pub billing_address: Option<serde_json::Value>,
+    #[diesel(sql_type = diesel::sql_types::Jsonb)]
+    pub custom_properties: serde_json::Value,
+}
+
+/// `planless_customer_ids`, as what an eligibility rule reads of each.
+pub async fn planless_customer_facts(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    product_family_id: ProductFamilyId,
+    currencies: &[String],
+    include_churned: bool,
+) -> DbResult<Vec<PlanlessFacts>> {
+    diesel::sql_query(format!(
+        "SELECT c.billing_address, c.custom_properties FROM customer c WHERE {PLANLESS}
+           AND upper(c.currency) = ANY($3) AND ($4 OR NOT {CHURNED})"
+    ))
+    .bind::<Uuid, _>(tenant_id)
+    .bind::<Uuid, _>(product_family_id)
+    .bind::<Array<Text>, _>(currencies)
+    .bind::<Bool, _>(include_churned)
+    .get_results(conn)
+    .await
+    .attach("Error while reading the customers without a plan in a product family")
+    .into_db_result()
+}
+
 pub async fn is_planless(
     conn: &mut PgConn,
     tenant_id: TenantId,

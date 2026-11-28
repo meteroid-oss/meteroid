@@ -47,6 +47,8 @@ message PreviewSignupPlanBackfillResponse {
   uint32 customers = 2;
   // Their subscription in the product family ended: in `customers` only with `include_churned`.
   uint32 churned = 3;
+  // The plan's eligibility rule leaves them off; not in `customers`.
+  uint32 not_eligible = 8;
   // They pay in a currency the plan is not sold in.
   uint32 not_sold = 4;
   // The plan has an eligibility rule: `customers` counts those it leaves off too, skipped as
@@ -57,6 +59,20 @@ message PreviewSignupPlanBackfillResponse {
   // Left off: their start in the family is unfinished, a subscription pending its activation or
   // a trial's checkout, none active.
   uint32 unfinished = 7;
+}
+
+message ListSignupPlansRequest {}
+
+// A product family's sign-up plan, as a customer created by hand can start on it.
+message SignupPlan {
+  string product_family_id = 1;
+  string plan_name = 2;
+  // Writes no document: bills nothing, grants no credit, reads no usage.
+  bool free = 3;
+}
+
+message ListSignupPlansResponse {
+  repeated SignupPlan plans = 1;
 }
 
 message StartSignupPlanBackfillRequest {
@@ -76,6 +92,8 @@ service SelfServeJourneyService {
   rpc SaveProductFamilyJourney(SaveProductFamilyJourneyRequest) returns (SaveProductFamilyJourneyResponse) {}
   // Customers without a plan, started on the free sign-up plan with no email sent: who it starts.
   rpc PreviewSignupPlanBackfill(PreviewSignupPlanBackfillRequest) returns (PreviewSignupPlanBackfillResponse) {}
+  // The sign-up plans a customer created by hand can start on, one a product family.
+  rpc ListSignupPlans(ListSignupPlansRequest) returns (ListSignupPlansResponse) {}
   // Starts them, as a batch job, with no email sent.
   rpc StartSignupPlanBackfill(StartSignupPlanBackfillRequest) returns (StartSignupPlanBackfillResponse) {}
 }

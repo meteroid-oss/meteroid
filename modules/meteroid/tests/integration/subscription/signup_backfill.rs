@@ -407,6 +407,11 @@ async fn the_eligibility_rule_leaves_off_whom_it_does_not_let_in() {
         .await
         .expect("a preview");
     assert!(preview.eligibility_rule);
+    assert_eq!(
+        (preview.customers, preview.not_eligible),
+        (0, 3),
+        "none of the seeded customers is in Portugal"
+    );
     let (version, customers) = env
         .services()
         .signup_backfill_customers(TENANT_ID, PRODUCT_FAMILY_ID, false)
@@ -732,4 +737,37 @@ async fn the_rest_api_shows_no_backfill_job() {
         .get(&format!("/api/v1/batch-jobs/{}", backfill.id))
         .await;
     assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
+}
+
+/// The sign-up plans a customer created by hand can start on: a free one, and one with a trial.
+#[tokio::test]
+async fn the_signup_plans_a_customer_can_start_on_are_listed() {
+    let env = test_env().await;
+    assert!(
+        env.services()
+            .list_signup_plans(TENANT_ID)
+            .await
+            .expect("none yet")
+            .is_empty()
+    );
+
+    signup_plan(&env, Decimal::ZERO, None).await;
+    let plans = env
+        .services()
+        .list_signup_plans(TENANT_ID)
+        .await
+        .expect("plans");
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].product_family_id, PRODUCT_FAMILY_ID);
+    assert_eq!(plans[0].plan_name, "Hobby");
+    assert!(plans[0].free);
+
+    signup_plan(&env, dec!(10), Some(14)).await;
+    let plans = env
+        .services()
+        .list_signup_plans(TENANT_ID)
+        .await
+        .expect("plans");
+    assert_eq!(plans.len(), 1);
+    assert!(!plans[0].free, "billed after its trial");
 }

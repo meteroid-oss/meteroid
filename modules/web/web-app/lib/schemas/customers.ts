@@ -112,6 +112,7 @@ export const createCustomerSchema = customerFormFields
     invoicingEntity: z.string().min(1, 'Invoicing entity is required'),
     currency: z.string().min(1, 'Currency is required'),
     connectedAccountId: z.string().optional(),
+    signupProductFamilyId: z.string().optional(),
   })
   .superRefine(validateCustomerIdentity)
 

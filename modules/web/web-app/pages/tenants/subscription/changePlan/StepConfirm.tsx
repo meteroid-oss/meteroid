@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
   Button,
@@ -34,6 +34,7 @@ import { rpcErrorMessage } from '@/lib/rpcError'
 import { formatCurrency } from '@/lib/utils/numbers'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
 import { usePlanChangeParameters } from '@/pages/tenants/subscription/changePlan/usePlanChangeParameters'
+import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import {
   ScheduledEventType,
   SubscriptionFeeBillingPeriod,
@@ -135,6 +136,15 @@ export const StepConfirm = () => {
     { enabled: Boolean(state.subscriptionId) }
   )
   // The timeline's own changes are written again over the plan change, never cancelled by it.
+  const subscription = subscriptionQuery.data?.subscription
+  const customerQuery = useQuery(
+    getCustomerById,
+    subscription?.customerId ? { id: subscription.customerId } : skipToken
+  )
+  // Charged automatically with a payment method on file, the new plan's invoices are paid with no checkout.
+  const chargesSavedMethod =
+    Boolean(subscription?.chargeAutomatically) &&
+    Boolean(customerQuery.data?.customer?.currentPaymentMethodId)
   const pendingEvents = (subscriptionQuery.data?.pendingEvents ?? []).filter(
     e => e.eventType !== ScheduledEventType.END_TRIAL && !e.timeline
   )
@@ -399,6 +409,20 @@ export const StepConfirm = () => {
               </CardContent>
             </Card>
           )}
+
+          {chargesSavedMethod &&
+            (!isImmediate || (preview?.proration?.netAmountCents ?? 0) > 0) && (
+              <Alert variant="default">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span className="text-sm">
+                    {isImmediate
+                      ? 'The customer\u2019s saved payment method is charged for this change now, with no checkout.'
+                      : 'Once the change applies, each invoice of the new plan is charged to the customer\u2019s saved payment method, with no checkout.'}
+                  </span>
+                </div>
+              </Alert>
+            )}
 
           {pendingEvents.length > 0 && (
             <Alert variant="warning">

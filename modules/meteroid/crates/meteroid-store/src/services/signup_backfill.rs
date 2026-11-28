@@ -2,6 +2,7 @@
 use std::collections::BTreeSet;
 
 use crate::StoreResult;
+use crate::domain::Address;
 use crate::domain::eligibility::{self, CustomerFacts};
 use crate::domain::outbox_event::SubscriptionOrigin;
 use crate::errors::StoreError;
@@ -15,7 +16,7 @@ use common_domain::ids::{
 };
 use diesel_models::batch_jobs::BatchJobEntityRowNew;
 use diesel_models::query::product_family_journeys::{
-    count_planless, count_unfinished, is_planless, planless_customer_ids,
+    count_planless, count_unfinished, is_planless, planless_customer_facts, planless_customer_ids,
 };
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
@@ -24,7 +25,7 @@ use scoped_futures::ScopedFutureExt;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignupBackfillPreview {
     pub plan_name: String,
-    /// Started on the plan, but for those its eligibility rule leaves off.
+    /// Started on the plan.
     pub customers: u32,
     /// A subscription of theirs in the product line ended: started only when asked for.
     pub churned: u32,
@@ -32,6 +33,8 @@ pub struct SignupBackfillPreview {
     pub not_sold: u32,
     /// The plan has an eligibility rule: the backfill skips the customers it leaves off.
     pub eligibility_rule: bool,
+    /// Left off by the plan's eligibility rule.
+    pub not_eligible: u32,
     /// Left off: their start here is unfinished (pending activation, or a trial whose checkout
     /// never settled), so they hold a plan already.
     pub unfinished: u32,
@@ -80,11 +83,13 @@ impl ServicesEdge {
             churned: 0,
             not_sold: 0,
             eligibility_rule: plan.eligibility.is_some(),
+            not_eligible: 0,
             unfinished: u32::try_from(
                 count_unfinished(&mut conn, tenant_id, product_family_id).await?,
             )
             .unwrap_or(u32::MAX),
         };
+        let mut sold = BTreeSet::new();
         for count in counts {
             let customers = u32::try_from(count.customers).unwrap_or(u32::MAX);
             if count.churned {
@@ -97,7 +102,35 @@ impl ServicesEdge {
                 preview.not_sold += customers;
             } else {
                 preview.customers += customers;
+                sold.insert(count.currency);
             }
+        }
+        // The rule is checked as the backfill checks it, on what it reads of each customer.
+        if let Some(rule) = plan.eligibility.as_ref() {
+            let sold: Vec<String> = sold.into_iter().collect();
+            let facts = planless_customer_facts(
+                &mut conn,
+                tenant_id,
+                product_family_id,
+                &sold,
+                include_churned,
+            )
+            .await?;
+            let not_eligible = facts
+                .iter()
+                .filter(|facts| {
+                    let country = facts
+                        .billing_address
+                        .clone()
+                        .and_then(|address| serde_json::from_value::<Address>(address).ok())
+                        .and_then(|address| address.country)
+                        .map(|country| country.code.clone());
+                    eligibility::check(rule, &CustomerFacts::new(country, &facts.custom_properties))
+                        .is_err()
+                })
+                .count();
+            preview.not_eligible = u32::try_from(not_eligible).unwrap_or(u32::MAX);
+            preview.customers = preview.customers.saturating_sub(preview.not_eligible);
         }
         Ok(preview)
     }

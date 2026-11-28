@@ -48,6 +48,15 @@ fn invalid(message: String) -> Report<StoreError> {
     Report::new(StoreError::InvalidArgument(message))
 }
 
+/// A product line's sign-up plan, as a customer created by hand can start on it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignupPlanSummary {
+    pub product_family_id: ProductFamilyId,
+    pub plan_name: String,
+    /// Writes no document: billing nothing, granting no credit, reading no usage.
+    pub free: bool,
+}
+
 /// A product line's sign-up plan, before the currency of the customer it signs up.
 pub(crate) struct SignupPlan {
     pub product_family_id: ProductFamilyId,
@@ -169,6 +178,34 @@ impl ServicesEdge {
         self.signup_plan(tenant_id, product_family_id)
             .await?
             .offer(currency, levels)
+    }
+
+    /// The sign-up plans that can sign a customer up, one a product line.
+    pub async fn list_signup_plans(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<SignupPlanSummary>> {
+        let journeys = {
+            let mut conn = self.store.get_conn().await?;
+            ProductFamilyJourneyRow::list(&mut conn, tenant_id).await?
+        };
+        let mut plans = Vec::new();
+        for journey in journeys.into_iter().filter(|j| j.signup_plan_id.is_some()) {
+            match self
+                .signup_plan(tenant_id, Some(journey.product_family_id))
+                .await
+            {
+                Ok(plan) => plans.push(SignupPlanSummary {
+                    product_family_id: plan.product_family_id,
+                    free: plan.free(),
+                    plan_name: plan.plan_name,
+                }),
+                Err(report)
+                    if matches!(report.current_context(), StoreError::InvalidArgument(_)) => {}
+                Err(report) => return Err(report),
+            }
+        }
+        Ok(plans)
     }
 
     /// The sign-up plan of `product_family_id`, or of the only family that has one, whatever

@@ -149,6 +149,8 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         preferredLocales: invoiceLanguageToLocales(values.preferredLanguage),
         customProperties: serializeCustomProperties(values.customProperties),
       },
+      subscribeToSignupPlan: Boolean(values.signupProductFamilyId),
+      signupProductFamilyId: values.signupProductFamilyId,
     })
     if (res.customer?.id) {
       if (!isExpress) await saveOwner(res.customer.id, undefined, owner)

@@ -162,6 +162,8 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         // Starting customers on the sign-up plan subscribes them.
         "SelfServeJourneyService" => match method {
             "StartSignupPlanBackfill" => RouteAuth::Requires(SubscriptionsManage),
+            // Read by the customer creation form.
+            "ListSignupPlans" => RouteAuth::Requires(CustomersRead),
             _ => rw(method, CatalogRead, CatalogManage),
         },
 
@@ -546,6 +548,10 @@ mod tests {
         assert_eq!(
             method_auth(&gm(service, "PreviewSignupPlanBackfill")),
             Some(RouteAuth::Requires(CatalogRead))
+        );
+        assert_eq!(
+            method_auth(&gm(service, "ListSignupPlans")),
+            Some(RouteAuth::Requires(CustomersRead))
         );
     }
 
