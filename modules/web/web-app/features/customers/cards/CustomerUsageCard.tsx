@@ -18,6 +18,7 @@ import { Gauge, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
+import { Sparkline } from '@/components/charts/Sparkline'
 import { SectionEmptyState } from '@/components/empty-state/SectionEmptyState'
 import { ContainedTableSection } from '@/features/customers/cards/ContainedTableSection'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -45,41 +46,6 @@ const AGGREGATION_LABEL: Record<string, string> = {
 }
 
 const toYmd = (d: Date) => format(d, 'yyyy-MM-dd')
-
-/** Dependency-free inline sparkline (normalised polyline), fills width, inherits colour via currentColor. */
-const Sparkline = ({ values, height = 22 }: { values: number[]; height?: number }) => {
-  const w = 96
-  const h = height
-  if (values.length < 2) {
-    return <div style={{ height: h }} />
-  }
-  let min = values[0]
-  let max = values[0]
-  for (const v of values) {
-    if (v < min) min = v
-    if (v > max) max = v
-  }
-  const span = max - min || 1
-  const points = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * w
-      const y = h - ((v - min) / span) * (h - 2) - 1
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
-  return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden>
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
 
 /**
  * Per-customer usage: every tenant billable metric's usage for this customer in one batched

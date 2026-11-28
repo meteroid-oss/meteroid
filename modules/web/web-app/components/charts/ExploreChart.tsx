@@ -51,6 +51,8 @@ interface ExploreChartProps {
    * to the chart's own breakdown keys.
    */
   paletteKeys?: string[]
+  /** A breakdown series drawn as a reference: muted and dashed, like the forecast. */
+  mutedSeries?: string
   /**
    * Override the value formatter used in tooltips/labels (not the compact axis). Defaults
    * to the metric unit's formatter, which rounds `count` to whole numbers — the preview
@@ -199,6 +201,7 @@ export const ExploreChart = ({
   forecast,
   showLegend = true,
   paletteKeys,
+  mutedSeries,
   valueFormatter,
   empty,
   onRetry,
@@ -388,7 +391,7 @@ export const ExploreChart = ({
     // Per-breakdown palette colour for a split series; the single-series line keeps
     // the brand colour, and the forecast continuation its muted grey.
     const colorOf = (id: string | number): string =>
-      id === 'Forecast'
+      id === 'Forecast' || (mutedSeries !== undefined && id === mutedSeries)
         ? forecastColor
         : multi
           ? palette[Math.max(0, colorKeys.indexOf(String(id))) % palette.length]
@@ -399,10 +402,10 @@ export const ExploreChart = ({
         ? { type: 'linear', min: 'auto', max: 'auto', stacked: isArea }
         : { type: 'linear', min: yMin, max: yMax }
     ) as LineSvgProps<LineSeries>['yScale']
-    const legendItems = groupKeys.map((k, i) => ({
+    const legendItems = groupKeys.map(k => ({
       id: k,
       label: groupValueLabel(entry.groupBy, k),
-      color: palette[i % palette.length],
+      color: colorOf(k),
     }))
     return (
       <div className="flex h-full flex-col">
@@ -476,7 +479,14 @@ export const ExploreChart = ({
               : []),
             // When forecasting, draw the dashed continuation ourselves so the
             // projected series is visually distinct from the solid actuals.
-            hasForecast ? (props => <ForecastLines {...props} />) : 'lines',
+            hasForecast || mutedSeries
+              ? props => (
+                  <ForecastLines
+                    {...props}
+                    dashed={[...(hasForecast ? ['Forecast'] : []), ...(mutedSeries ? [mutedSeries] : [])]}
+                  />
+                )
+              : 'lines',
             'axes',
             props => <ActiveSerieLayer {...props} setSerie={setSerie} />,
           ]}
@@ -506,10 +516,10 @@ export const ExploreChart = ({
   // Bar + stacked share one ResponsiveBar; a plain bar places breakdown series
   // side by side (grouped), stacked piles them; both use the breakdown palette.
   const barLegendVisible = !!entry.groupBy && showLegend
-  const barLegendItems = barKeys.map((k, i) => ({
+  const barLegendItems = barKeys.map(k => ({
     id: k,
     label: groupValueLabel(entry.groupBy, k),
-    color: palette[i % palette.length],
+    color: palette[Math.max(0, colorKeys.indexOf(k)) % palette.length],
   }))
   return (
     <div className="flex h-full flex-col">
@@ -579,13 +589,17 @@ const ForecastBand = ({
   return <path d={`M${pts.join('L')}Z`} fill={color} fillOpacity={0.13} stroke="none" />
 }
 
-// Replacement for Nivo's default `lines` layer: draws the actual series solid and
-// the "Forecast" series dashed, so the projected continuation reads as distinct.
-const ForecastLines = ({ series, lineGenerator }: LineCustomSvgLayerProps<LineSeries>) => (
+// Replacement for Nivo's default `lines` layer: draws the actual series solid and the
+// `dashed` ones (the forecast, a reference period) dashed, so they read as distinct.
+const ForecastLines = ({
+  series,
+  lineGenerator,
+  dashed,
+}: LineCustomSvgLayerProps<LineSeries> & { dashed: string[] }) => (
   <g>
     {series.map(s => {
       const d = lineGenerator(s.data.map(p => p.position)) ?? undefined
-      const isForecast = s.id === 'Forecast'
+      const isForecast = dashed.includes(String(s.id))
       return (
         <path
           key={s.id}

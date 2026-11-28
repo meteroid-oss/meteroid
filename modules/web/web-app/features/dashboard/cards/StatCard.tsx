@@ -1,6 +1,6 @@
 import { Skeleton, cn } from '@md/ui'
 import { ArrowRight } from 'lucide-react'
-import { useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 import { Link } from 'react-router'
 
 import { DashboardCard, DashboardCardTitle } from '@/features/dashboard/cards/DashboardCard'
@@ -13,12 +13,14 @@ export interface TrendProp {
   positiveIsGreen: boolean
 }
 export interface StatCardProp {
-  title: string
+  title: ReactNode
   detailPath?: string
-  value?: string | number
-  secondaryValue?: string
+  value?: ReactNode
+  secondaryValue?: ReactNode
   trend?: TrendProp
   loading?: boolean
+  /** The secondary value under the value rather than beside it. */
+  stacked?: boolean
 }
 export const StatCard: React.FC<StatCardProp> = ({
   title,
@@ -27,12 +29,14 @@ export const StatCard: React.FC<StatCardProp> = ({
   secondaryValue,
   trend,
   loading,
+  stacked,
 }) => {
   const card = (
     <DashboardCard
       raised
       className={cn(
-        'flex h-[125px] grow flex-col justify-between',
+        'flex grow flex-col justify-between gap-3',
+        stacked ? 'min-h-[125px]' : 'h-[125px]',
         detailPath && 'transition-colors duration-200 group-hover:border-foreground/20'
       )}
     >
@@ -55,11 +59,15 @@ export const StatCard: React.FC<StatCardProp> = ({
           </div>
         ) : (
           <>
-            <div className="flex flex-row gap-4 items-baseline">
+            <div
+              className={cn('flex', stacked ? 'flex-col gap-1.5' : 'flex-row gap-4 items-baseline')}
+            >
               {value && <div className="font-display text-[21px] leading-none">{value}</div>}
 
               {secondaryValue && (
-                <div className="text-xs text-muted-foreground self-baseline">{secondaryValue}</div>
+                <div className={cn('text-xs text-muted-foreground', !stacked && 'self-baseline')}>
+                  {secondaryValue}
+                </div>
               )}
             </div>
             {trend && <StatCardTrend {...trend} />}
