@@ -520,12 +520,41 @@ pub(crate) fn lineage_of(row: &SubscriptionComponentRow) -> SubscriptionPriceCom
     row.lineage_id.unwrap_or(row.id)
 }
 
-pub(crate) fn fee_of(row: &SubscriptionComponentRow) -> StoreResult<SubscriptionFee> {
-    row.legacy_fee
-        .clone()
-        .map(SubscriptionFee::try_from)
-        .transpose()?
-        .ok_or_else(|| invalid(format!("{} has no fee to price", row.name)))
+/// Component rows as they bill on a day, by row.
+pub(crate) struct RowFees(
+    std::collections::HashMap<SubscriptionPriceComponentId, crate::domain::SubscriptionComponent>,
+);
+
+impl RowFees {
+    pub(crate) async fn on(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        rows: &[SubscriptionComponentRow],
+        on: NaiveDate,
+    ) -> StoreResult<Self> {
+        let (components, _) = crate::repositories::subscriptions::resolve_rows_on(
+            conn,
+            tenant_id,
+            rows.to_vec(),
+            Vec::new(),
+            on,
+        )
+        .await?;
+        Ok(RowFees(components.into_iter().map(|c| (c.id, c)).collect()))
+    }
+
+    pub(crate) fn component(
+        &self,
+        row: &SubscriptionComponentRow,
+    ) -> StoreResult<&crate::domain::SubscriptionComponent> {
+        self.0
+            .get(&row.id)
+            .ok_or_else(|| invalid(format!("{} has no fee to price", row.name)))
+    }
+
+    pub(crate) fn fee_of(&self, row: &SubscriptionComponentRow) -> StoreResult<SubscriptionFee> {
+        self.component(row).map(|c| c.fee.clone())
+    }
 }
 
 /// `base` at the phase's price and seat floor for it: a floor never lowers the fee's own.
@@ -620,6 +649,7 @@ struct FlooredAddOns {
 /// it: its row closed and opened again, never below its own minimum; the seats held untouched.
 async fn floor_add_ons_tx(
     conn: &mut PgConn,
+    tenant_id: TenantId,
     subscription_id: SubscriptionId,
     input: &SubscriptionPhaseInput,
     compatible: Option<&std::collections::HashSet<common_domain::ids::AddOnId>>,
@@ -627,12 +657,19 @@ async fn floor_add_ons_tx(
     use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
     let start = input.start_date;
     let rows = db(SubscriptionAddOnRow::list_fact_rows(conn, subscription_id).await)?;
+    let (_, resolved) = crate::repositories::subscriptions::resolve_rows_on(
+        conn,
+        tenant_id,
+        Vec::new(),
+        rows.clone(),
+        start,
+    )
+    .await?;
+    let fees: std::collections::HashMap<_, _> =
+        resolved.into_iter().map(|a| (a.id, a.fee)).collect();
     let lineage_of = |row: &SubscriptionAddOnRow| row.lineage_id.unwrap_or(row.id);
     let fee_of = |row: &SubscriptionAddOnRow| -> StoreResult<Option<SubscriptionFee>> {
-        row.legacy_fee
-            .clone()
-            .map(SubscriptionFee::try_from)
-            .transpose()
+        Ok(fees.get(&row.id).cloned())
     };
     let mut floored = FlooredAddOns::default();
     for row in rows.iter().filter(|row| {
@@ -831,6 +868,8 @@ pub(in crate::services) async fn write_phase_as_tx(
     .await?
     .facts;
     let rows = db(SubscriptionComponentRow::list_fact_rows(conn, subscription_id).await)?;
+    let fees = RowFees::on(conn, tenant_id, &rows, start).await?;
+    let fee_of = |row: &SubscriptionComponentRow| fees.fee_of(row);
     let open: Vec<&SubscriptionComponentRow> = rows
         .iter()
         .filter(|row| row.effective_to.is_none())
@@ -881,12 +920,10 @@ pub(in crate::services) async fn write_phase_as_tx(
                 refuse_discounted(lineage_of(row), &row.name)?;
                 refuse_later(row)?;
             }
-            let components =
-                db(SubscriptionComponentRow::list_fact_rows(conn, subscription_id).await)?
-                    .into_iter()
-                    .filter(|row| row.effective_to.is_none())
-                    .map(TryInto::try_into)
-                    .collect::<StoreResult<Vec<_>>>()?;
+            let components = open
+                .iter()
+                .map(|row| fees.component(row).cloned())
+                .collect::<StoreResult<Vec<_>>>()?;
             let plan_option_id =
                 option_in_force_tx(conn, tenant_id, subscription_id, start).await?;
             let offered: std::collections::HashSet<common_domain::ids::PriceComponentId> = db(
@@ -972,7 +1009,9 @@ pub(in crate::services) async fn write_phase_as_tx(
             .into_iter()
             .map(|offered| offered.add_on_id)
             .collect();
-            let floored = floor_add_ons_tx(conn, subscription_id, input, Some(&compatible)).await?;
+            let floored =
+                floor_add_ons_tx(conn, tenant_id, subscription_id, input, Some(&compatible))
+                    .await?;
             ScheduledEventData::ApplyPlanChange {
                 source_plan_version_id: None,
                 new_plan_version_id: plan.plan_version_id,
@@ -1011,7 +1050,7 @@ pub(in crate::services) async fn write_phase_as_tx(
                     }
                 }
             }
-            let floored = floor_add_ons_tx(conn, subscription_id, input, None).await?;
+            let floored = floor_add_ons_tx(conn, tenant_id, subscription_id, input, None).await?;
             for seats in &input.terms.min_seats {
                 let mut found = floored.counted.contains(&seats.quantity_id);
                 for row in &open {

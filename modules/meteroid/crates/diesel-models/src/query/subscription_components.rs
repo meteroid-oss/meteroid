@@ -542,14 +542,20 @@ impl SubscriptionComponentRow {
             SELECT sc.id
             FROM subscription_component sc
             JOIN subscription s ON s.id = sc.subscription_id
+            LEFT JOIN price p ON p.id = sc.price_id
             WHERE s.tenant_id = $1 AND sc.id = ANY($2)
-              AND sc.legacy_fee @> '{"Credit": {"once": true}}'
+              AND CASE WHEN sc.price_id IS NULL
+                       THEN sc.legacy_fee @> '{"Credit": {"once": true}}'
+                       ELSE p.pricing @> '{"type": "Credit", "once": true}' END
             UNION ALL
             SELECT sa.id
             FROM subscription_add_on sa
             JOIN subscription s ON s.id = sa.subscription_id
+            LEFT JOIN price p ON p.id = sa.price_id
             WHERE s.tenant_id = $1 AND sa.id = ANY($3)
-              AND sa.legacy_fee @> '{"Credit": {"once": true}}'
+              AND CASE WHEN sa.price_id IS NULL
+                       THEN sa.legacy_fee @> '{"Credit": {"once": true}}'
+                       ELSE p.pricing @> '{"type": "Credit", "once": true}' END
             "#,
         )
         .bind::<sql_types::Uuid, _>(tenant_id)

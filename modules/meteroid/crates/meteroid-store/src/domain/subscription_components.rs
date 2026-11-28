@@ -168,7 +168,11 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionComponentRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.internal.fee.try_into()?;
+        // A row its charge and price read stores no fee; an ad hoc or repriced one keeps it.
+        let legacy_fee = match (self.internal.price_id, self.internal.price_component_id) {
+            (Some(_), Some(_)) => None,
+            _ => Some(self.internal.fee.try_into()?),
+        };
 
         Ok(SubscriptionComponentRowNew {
             id: SubscriptionPriceComponentId::new(),
@@ -177,7 +181,7 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
             product_id: self.internal.product_id,
             name: self.internal.name,
             period: self.internal.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             price_id: self.internal.price_id,
             effective_from: self.internal.effective_from,
             // Default to a root; the amendment override path sets the predecessor's

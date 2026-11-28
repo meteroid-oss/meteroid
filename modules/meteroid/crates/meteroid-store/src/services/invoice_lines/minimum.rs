@@ -1101,8 +1101,8 @@ async fn outgoing_terms(
         .into_iter()
         .filter(|row| row.effective_to == Some(period_end))
     {
-        let component: crate::domain::SubscriptionComponent = row.try_into()?;
-        if let Some(period) = component.period.as_billing_period_opt() {
+        let period: crate::domain::enums::SubscriptionFeeBillingPeriod = row.period.into();
+        if let Some(period) = period.as_billing_period_opt() {
             cadence = Some(cadence.map_or(period, |c| {
                 if period.as_months() < c.as_months() {
                     period

@@ -428,24 +428,7 @@ impl ServicesEdge {
             .list_pending_cancellations(tenant_id, &ids)
             .await?;
         let mut conn = self.store.get_conn().await?;
-        let components = SubscriptionComponentRow::list_subscription_components_by_subscriptions(
-            &mut conn, &tenant_id, &ids,
-        )
-        .await?
-        .into_iter()
-        .map(|(id, rows)| {
-            rows.into_iter()
-                .map(TryInto::try_into)
-                .collect::<StoreResult<Vec<SubscriptionComponent>>>()
-                .map(|components| {
-                    let components = components
-                        .into_iter()
-                        .filter(|component| component_in_effect(component, today))
-                        .collect();
-                    (id, components)
-                })
-        })
-        .collect::<StoreResult<HashMap<_, _>>>()?;
+        let components = components_in_effect(&mut conn, tenant_id, &ids, today).await?;
         Ok(ActiveSubscriptions {
             subscriptions,
             components,
@@ -1221,26 +1204,7 @@ impl ServicesEdge {
         let (components, minimums, seats) = {
             let mut conn = self.store.get_conn().await?;
             let mut components =
-                SubscriptionComponentRow::list_subscription_components_by_subscriptions(
-                    &mut conn,
-                    &tenant_id,
-                    subscription_ids,
-                )
-                .await?
-                .into_iter()
-                .map(|(id, rows)| {
-                    rows.into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<StoreResult<Vec<SubscriptionComponent>>>()
-                        .map(|components| {
-                            let components = components
-                                .into_iter()
-                                .filter(|component| component_in_effect(component, today))
-                                .collect::<Vec<_>>();
-                            (id, components)
-                        })
-                })
-                .collect::<StoreResult<HashMap<_, _>>>()?;
+                components_in_effect(&mut conn, tenant_id, subscription_ids, today).await?;
             crate::repositories::subscriptions::slots::name_seat_quantities(
                 &mut conn,
                 tenant_id,
@@ -1324,6 +1288,41 @@ impl ServicesEdge {
         }
         Ok(inputs)
     }
+}
+
+/// Each subscription's components in effect `today`, as they bill then.
+async fn components_in_effect(
+    conn: &mut diesel_models::PgConn,
+    tenant_id: TenantId,
+    subscription_ids: &[SubscriptionId],
+    today: NaiveDate,
+) -> StoreResult<HashMap<SubscriptionId, Vec<SubscriptionComponent>>> {
+    let by_subscription = SubscriptionComponentRow::list_subscription_components_by_subscriptions(
+        conn,
+        &tenant_id,
+        subscription_ids,
+    )
+    .await?;
+    let mut components: HashMap<SubscriptionId, Vec<SubscriptionComponent>> =
+        by_subscription.keys().map(|id| (*id, Vec::new())).collect();
+    let (resolved, _) = crate::repositories::subscriptions::resolve_rows_on(
+        conn,
+        tenant_id,
+        by_subscription.into_values().flatten().collect(),
+        Vec::new(),
+        today,
+    )
+    .await?;
+    for component in resolved
+        .into_iter()
+        .filter(|component| component_in_effect(component, today))
+    {
+        components
+            .entry(component.subscription_id)
+            .or_default()
+            .push(component);
+    }
+    Ok(components)
 }
 
 #[cfg(test)]

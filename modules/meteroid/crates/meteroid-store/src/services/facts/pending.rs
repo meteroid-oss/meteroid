@@ -888,18 +888,27 @@ fn lay_target_seats(
     }
 }
 
-/// The quantities the open seat fees of `components` and `add_ons` count, as stored.
+/// The quantities the open seat fees of `components` and `add_ons` count; a row with no fee to read
+/// counts none.
 pub(crate) async fn held_seat_quantities(
     conn: &mut PgConn,
     tenant_id: TenantId,
     components: &[SubscriptionComponentRow],
     add_ons: &[SubscriptionAddOnRow],
 ) -> StoreResult<HashSet<ManagedQuantityId>> {
+    let (components, add_ons) = crate::repositories::subscriptions::each_row_on(
+        conn,
+        tenant_id,
+        components.to_vec(),
+        add_ons.to_vec(),
+        common_clock::now().date_naive(),
+    )
+    .await?;
     let mut fees: Vec<SubscriptionFee> = components
-        .iter()
-        .filter_map(|row| row.legacy_fee.clone())
-        .chain(add_ons.iter().filter_map(|row| row.legacy_fee.clone()))
-        .filter_map(|json| serde_json::from_value::<SubscriptionFee>(json).ok())
+        .into_iter()
+        .flatten()
+        .map(|c| c.fee)
+        .chain(add_ons.into_iter().flatten().map(|a| a.fee))
         .filter(|fee| matches!(fee, SubscriptionFee::Slot { .. }))
         .collect();
     crate::repositories::subscriptions::slots::name_seat_quantities(

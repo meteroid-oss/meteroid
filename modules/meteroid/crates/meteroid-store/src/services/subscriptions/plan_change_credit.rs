@@ -11,10 +11,7 @@ use crate::domain::credit_units::CreditUnitRef;
 use crate::domain::entity_activity::Actor;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::subscription_changes::{PackChange, PackChangeKind};
-use crate::domain::{
-    Invoice, LineItemKind, Subscription, SubscriptionAddOn, SubscriptionComponent,
-    SubscriptionDetails,
-};
+use crate::domain::{Invoice, LineItemKind, Subscription, SubscriptionAddOn, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::{
     self as credit, LockedGrants, PeriodCreditRemoval, list_grants_tx, lock_customer_tx,
@@ -260,6 +257,7 @@ impl Ending {
     /// there (one carried over continues it).
     async fn of_switch(
         conn: &mut PgConn,
+        tenant_id: TenantId,
         subscription_id: SubscriptionId,
         at: NaiveDate,
     ) -> StoreResult<Self> {
@@ -290,8 +288,33 @@ impl Ending {
             from_facts: Some(Change::of_rows(at, GiveBack::Unused, "plan change").read_now()),
             amendment: false,
         };
-        for row in rows.into_iter().filter(|row| row.effective_to == Some(at)) {
-            let component: SubscriptionComponent = row.try_into()?;
+        let last_day = at.pred_opt().unwrap_or(at);
+        let add_ons = SubscriptionAddOnRow::list_add_on_history_for_period(
+            conn,
+            &subscription_id,
+            last_day,
+            at.succ_opt().unwrap_or(at),
+        )
+        .await?;
+        let continued: HashSet<SubscriptionAddOnId> = add_ons
+            .iter()
+            .filter(|row| row.effective_to.is_none_or(|to| to > at))
+            .map(|row| row.lineage_id.unwrap_or(row.id))
+            .collect();
+        let (components, closed_add_ons) = crate::repositories::subscriptions::resolve_rows_on(
+            conn,
+            tenant_id,
+            rows.into_iter()
+                .filter(|row| row.effective_to == Some(at))
+                .collect(),
+            add_ons
+                .into_iter()
+                .filter(|row| row.effective_to == Some(at))
+                .collect(),
+            last_day,
+        )
+        .await?;
+        for component in components {
             let root = component.lineage();
             if SubscriptionComponentRow::lineage_ended_on(conn, root).await? != Some(at) {
                 continue;
@@ -301,23 +324,7 @@ impl Ending {
                 ending.tied_packs.insert(root.to_string());
             }
         }
-        let add_ons = SubscriptionAddOnRow::list_add_on_history_for_period(
-            conn,
-            &subscription_id,
-            at.pred_opt().unwrap_or(at),
-            at.succ_opt().unwrap_or(at),
-        )
-        .await?;
-        let continued: HashSet<SubscriptionAddOnId> = add_ons
-            .iter()
-            .filter(|row| row.effective_to.is_none_or(|to| to > at))
-            .map(|row| row.lineage_id.unwrap_or(row.id))
-            .collect();
-        for row in add_ons
-            .into_iter()
-            .filter(|row| row.effective_to == Some(at))
-        {
-            let add_on: SubscriptionAddOn = row.try_into()?;
+        for add_on in closed_add_ons {
             if continued.contains(&add_on.lineage()) {
                 continue;
             }
@@ -967,7 +974,7 @@ impl Services {
         )
         .await?
         .subscription;
-        let ending = Ending::of_switch(conn, subscription_id, at).await?;
+        let ending = Ending::of_switch(conn, tenant_id, subscription_id, at).await?;
         let scope = EndingScope {
             tenant_id,
             customer_id: subscription.customer_id,

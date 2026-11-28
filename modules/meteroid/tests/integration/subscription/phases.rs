@@ -20,7 +20,9 @@ use meteroid_store::domain::{
     ComponentParameterization, ComponentParameters, CreateSubscriptionComponents,
 };
 use meteroid_store::repositories::CreditNoteInterface;
-use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+use meteroid_store::repositories::subscriptions::{
+    CancellationEffectiveAt, SubscriptionInterfaceAuto,
+};
 use rstest::rstest;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -111,7 +113,17 @@ async fn seats_quantity_of(
     env: &TestEnv,
     seats: &diesel_models::subscription_components::SubscriptionComponentRow,
 ) -> common_domain::ids::ManagedQuantityId {
-    match SubscriptionFee::try_from(seats.legacy_fee.clone().expect("a fee")).expect("a slot fee") {
+    let fee = env
+        .store()
+        .get_subscription_details(TENANT_ID, seats.subscription_id)
+        .await
+        .expect("details")
+        .price_components
+        .into_iter()
+        .find(|component| component.id == seats.id)
+        .expect("the seats in force")
+        .fee;
+    match fee {
         SubscriptionFee::Slot {
             quantity_id: Some(id),
             ..
@@ -2262,4 +2274,75 @@ async fn an_uplift_renewal_renews_beside_an_amendment_of_its_day(#[future] test_
         "{march:#?}"
     );
     assert!(march.iter().any(|line| line.contains("SSO")), "{march:#?}");
+}
+
+/// Phases and discounts price a fee from its price: a priced row stored without its fee (as a
+/// release that stops writing it will) floors and discounts as any other.
+/// Rules: R-146, R-149
+#[rstest]
+#[tokio::test]
+async fn a_priced_fee_without_its_stored_fee_takes_a_floor_and_a_discount(
+    #[future] test_env: TestEnv,
+) {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::subscription_component::dsl as c;
+
+    let env = test_env.await;
+    env.set_now(at(1, 15, 12));
+    let starter = starter_from_jan_1(&env).await;
+    let blanked = diesel::update(
+        c::subscription_component
+            .filter(c::subscription_id.eq(starter.sub_id))
+            .filter(c::price_id.is_not_null()),
+    )
+    .set(c::legacy_fee.eq(None::<serde_json::Value>))
+    .execute(&mut env.conn().await)
+    .await
+    .expect("the stored fees blanked");
+    assert_eq!(blanked, 2, "both fees are priced");
+
+    set_phases(
+        &env,
+        starter.sub_id,
+        vec![phase(
+            day(3, 1),
+            "floor 3",
+            PhaseTerms {
+                min_seats: vec![PhaseSeats {
+                    quantity_id: starter.seats_quantity,
+                    code: String::new(),
+                    slots: 3,
+                }],
+                ..PhaseTerms::default()
+            },
+        )],
+    )
+    .await
+    .expect("a seat floor");
+    discount(
+        &env,
+        starter.sub_id,
+        starter.platform,
+        dec!(20),
+        day(3, 1),
+        day(4, 1),
+    )
+    .await
+    .expect("20 % off in March");
+
+    env.run_until(day(4, 2)).await;
+    assert_eq!(
+        documents(&env, starter.sub_id).await,
+        vec![
+            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
+            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
+            "Recurring 2024-02-01: Platform Fee 2024-02-01..2024-03-01 2900",
+            "Recurring 2024-02-01: Seats 2024-02-01..2024-03-01 1000",
+            "Recurring 2024-03-01: Platform Fee 2024-03-01..2024-04-01 2320",
+            "Recurring 2024-03-01: Seats 2024-03-01..2024-04-01 3000",
+            "Recurring 2024-04-01: Platform Fee 2024-04-01..2024-05-01 2900",
+            "Recurring 2024-04-01: Seats 2024-04-01..2024-05-01 3000",
+        ]
+    );
 }

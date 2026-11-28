@@ -4,8 +4,8 @@ use crate::invoices::InvoiceRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    CustomerId, InvoiceId, SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId,
-    TenantId,
+    BaseId, CustomerId, InvoiceId, SubscriptionAddOnId, SubscriptionId,
+    SubscriptionPriceComponentId, TenantId,
 };
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl,
@@ -115,38 +115,20 @@ pub async fn list_once_credit_owners(
     components: &[SubscriptionPriceComponentId],
     add_ons: &[SubscriptionAddOnId],
 ) -> DbResult<(Vec<SubscriptionPriceComponentId>, Vec<SubscriptionAddOnId>)> {
-    use crate::schema::subscription::dsl as s;
-    use crate::schema::subscription_add_on::dsl as a;
-    use crate::schema::subscription_component::dsl as c;
-    use diesel::PgJsonbExpressionMethods;
-    let once = serde_json::json!({"Credit": {"once": true}});
-    let components = if components.is_empty() {
-        Vec::new()
-    } else {
-        c::subscription_component
-            .inner_join(s::subscription.on(s::id.eq(c::subscription_id)))
-            .filter(s::tenant_id.eq(tenant_id))
-            .filter(c::id.eq_any(components))
-            .filter(c::legacy_fee.contains(once.clone()))
-            .select(c::id)
-            .load::<SubscriptionPriceComponentId>(conn)
-            .await
-            .attach("Error while reading one-time credit components")
-            .into_db_result()?
-    };
-    let add_ons = if add_ons.is_empty() {
-        Vec::new()
-    } else {
-        a::subscription_add_on
-            .inner_join(s::subscription.on(s::id.eq(a::subscription_id)))
-            .filter(s::tenant_id.eq(tenant_id))
-            .filter(a::id.eq_any(add_ons))
-            .filter(a::legacy_fee.contains(once))
-            .select(a::id)
-            .load::<SubscriptionAddOnId>(conn)
-            .await
-            .attach("Error while reading one-time credit add-ons")
-            .into_db_result()?
-    };
-    Ok((components, add_ons))
+    let once = crate::subscription_components::SubscriptionComponentRow::once_credit_of(
+        conn, tenant_id, components, add_ons,
+    )
+    .await?;
+    Ok((
+        components
+            .iter()
+            .filter(|id| once.contains(&id.as_uuid()))
+            .copied()
+            .collect(),
+        add_ons
+            .iter()
+            .filter(|id| once.contains(&id.as_uuid()))
+            .copied()
+            .collect(),
+    ))
 }

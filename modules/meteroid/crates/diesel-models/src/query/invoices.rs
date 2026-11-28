@@ -1419,18 +1419,18 @@ impl InvoiceRow {
                 LEFT JOIN price p ON p.id = sc.price_id
                 WHERE sc.subscription_id = $2
                   AND sc.product_id = $3
-                  AND (sc.legacy_fee @> '{"Credit": {"once": true}}'
-                       OR (sc.legacy_fee IS NULL
-                           AND p.pricing @> '{"type": "Credit", "once": true}'))
+                  AND CASE WHEN sc.price_id IS NULL
+                           THEN sc.legacy_fee @> '{"Credit": {"once": true}}'
+                           ELSE p.pricing @> '{"type": "Credit", "once": true}' END
                 UNION ALL
                 SELECT sa.id::text, 'sub_add_on_id'
                 FROM subscription_add_on sa
                 LEFT JOIN price p ON p.id = sa.price_id
                 WHERE sa.subscription_id = $2
                   AND sa.product_id = $3
-                  AND (sa.legacy_fee @> '{"Credit": {"once": true}}'
-                       OR (sa.legacy_fee IS NULL
-                           AND p.pricing @> '{"type": "Credit", "once": true}'))
+                  AND CASE WHEN sa.price_id IS NULL
+                           THEN sa.legacy_fee @> '{"Credit": {"once": true}}'
+                           ELSE p.pricing @> '{"type": "Credit", "once": true}' END
             ), included AS (
                 SELECT g.id, g.invoice_id, g.line_local_id, g.amount
                 FROM customer_credit_grant g
@@ -1506,18 +1506,18 @@ impl InvoiceRow {
                 LEFT JOIN price p ON p.id = sc.price_id
                 WHERE sc.subscription_id = $2
                   AND sc.product_id = $3
-                  AND (sc.legacy_fee @> '{"Credit": {"once": true}}'
-                       OR (sc.legacy_fee IS NULL
-                           AND p.pricing @> '{"type": "Credit", "once": true}'))
+                  AND CASE WHEN sc.price_id IS NULL
+                           THEN sc.legacy_fee @> '{"Credit": {"once": true}}'
+                           ELSE p.pricing @> '{"type": "Credit", "once": true}' END
                 UNION ALL
                 SELECT sa.id::text, 'sub_add_on_id'
                 FROM subscription_add_on sa
                 LEFT JOIN price p ON p.id = sa.price_id
                 WHERE sa.subscription_id = $2
                   AND sa.product_id = $3
-                  AND (sa.legacy_fee @> '{"Credit": {"once": true}}'
-                       OR (sa.legacy_fee IS NULL
-                           AND p.pricing @> '{"type": "Credit", "once": true}'))
+                  AND CASE WHEN sa.price_id IS NULL
+                           THEN sa.legacy_fee @> '{"Credit": {"once": true}}'
+                           ELSE p.pricing @> '{"type": "Credit", "once": true}' END
             )
             SELECT EXISTS (
                 SELECT 1

@@ -4,7 +4,7 @@ use crate::enums::SubscriptionFeeBillingPeriod;
 use common_domain::ids::{AddOnId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable, Selectable)]
+#[derive(Queryable, Debug, Clone, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::subscription_add_on)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionAddOnRow {

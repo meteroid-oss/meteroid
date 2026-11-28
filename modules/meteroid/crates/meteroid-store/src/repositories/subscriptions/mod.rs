@@ -850,18 +850,6 @@ impl Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Partition by price_id presence for resolution
-        let (comp_rows_with_price, comp_rows_without_price): (Vec<_>, Vec<_>) =
-            subscription_component_rows
-                .into_iter()
-                .partition(|row| row.price_id.is_some());
-
-        // Legacy components: deserialize fee JSONB
-        let mut subscription_components: Vec<SubscriptionComponent> = comp_rows_without_price
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, Report<_>>>()?;
-
         let subscription_add_on_rows = SubscriptionAddOnRow::list_by_subscription_id_active(
             conn,
             &tenant_id,
@@ -871,99 +859,23 @@ impl Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) =
-            subscription_add_on_rows
-                .into_iter()
-                .partition(|row| row.price_id.is_some());
-
-        // Legacy add-ons: deserialize fee JSONB
-        let mut subscription_add_ons: Vec<SubscriptionAddOn> = addon_rows_without_price
+        // Rows with no price first, as they always listed.
+        let (priced, unpriced): (Vec<_>, Vec<_>) = subscription_component_rows
             .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, Report<_>>>()?;
-
-        // Resolve new-style components and add-ons from their charges' structures + prices
-        if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
-            let prices_by_id = fetch_prices(
-                conn,
-                tenant_id,
-                comp_rows_with_price
-                    .iter()
-                    .filter_map(|r| r.price_id)
-                    .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
-            )
-            .await?;
-            let shapes = ChargeShapes::load(
-                conn,
-                tenant_id,
-                &comp_rows_with_price,
-                &addon_rows_with_price,
-            )
-            .await?;
-            let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
-
-            for row in comp_rows_with_price {
-                let resolved = resolve_fee_from_maps(
-                    row.price_id,
-                    shapes.of_component(&row).as_ref(),
-                    &prices_by_id,
-                    &units,
-                );
-
-                let component = if let Some((period, fee)) = resolved {
-                    SubscriptionComponent {
-                        id: row.id,
-                        price_component_id: row.price_component_id,
-                        product_id: row.product_id,
-                        subscription_id: row.subscription_id,
-                        name: row.name,
-                        period,
-                        fee,
-                        price_id: row.price_id,
-                        effective_from: row.effective_from,
-                        effective_to: row.effective_to,
-                        lineage_id: row.lineage_id,
-                        added_by_amendment: row.added_by_amendment,
-                    }
-                } else {
-                    row.try_into()?
-                };
-
-                subscription_components.push(component);
-            }
-
-            for row in addon_rows_with_price {
-                let resolved = resolve_fee_from_maps(
-                    row.price_id,
-                    shapes.of_add_on(&row).as_ref(),
-                    &prices_by_id,
-                    &units,
-                );
-
-                let add_on = if let Some((period, fee)) = resolved {
-                    SubscriptionAddOn {
-                        id: row.id,
-                        subscription_id: row.subscription_id,
-                        add_on_id: row.add_on_id,
-                        name: row.name,
-                        period,
-                        fee,
-                        created_at: row.created_at,
-                        product_id: row.product_id,
-                        price_id: row.price_id,
-                        quantity: row.quantity,
-                        effective_from: row.effective_from,
-                        effective_to: row.effective_to,
-                        lineage_id: row.lineage_id,
-                        added_by_amendment: row.added_by_amendment,
-                    }
-                } else {
-                    row.try_into()?
-                };
-
-                subscription_add_ons.push(add_on);
-            }
-        }
+            .partition(|row| row.price_id.is_some());
+        let component_rows = unpriced.into_iter().chain(priced).collect();
+        let (priced, unpriced): (Vec<_>, Vec<_>) = subscription_add_on_rows
+            .into_iter()
+            .partition(|row| row.price_id.is_some());
+        let add_on_rows = unpriced.into_iter().chain(priced).collect();
+        let (mut subscription_components, mut subscription_add_ons) = resolve_rows_on(
+            conn,
+            tenant_id,
+            component_rows,
+            add_on_rows,
+            common_clock::now().date_naive(),
+        )
+        .await?;
 
         // Seats are counted by quantity: a fee recorded before quantities were named gets its own.
         slots::name_seat_quantities(
@@ -1535,6 +1447,100 @@ pub(crate) fn resolve_fee_from_maps(
     let period = fee_type_billing_period(fee_structure)
         .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
     Some((period, fee))
+}
+
+/// Rows as their fees read on `on`: a priced row's from its price in force and its charge's
+/// structure, a row with no price (or a price that no longer resolves) as its stored fee.
+pub(crate) async fn resolve_rows_on(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    components: Vec<SubscriptionComponentRow>,
+    add_ons: Vec<SubscriptionAddOnRow>,
+    on: NaiveDate,
+) -> StoreResult<(Vec<SubscriptionComponent>, Vec<SubscriptionAddOn>)> {
+    let (components, add_ons) = each_row_on(conn, tenant_id, components, add_ons, on).await?;
+    Ok((
+        components.into_iter().collect::<StoreResult<_>>()?,
+        add_ons.into_iter().collect::<StoreResult<_>>()?,
+    ))
+}
+
+/// [`resolve_rows_on`], each row on its own: a row with no fee to read is an error of its own.
+pub(crate) async fn each_row_on(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    components: Vec<SubscriptionComponentRow>,
+    add_ons: Vec<SubscriptionAddOnRow>,
+    on: NaiveDate,
+) -> StoreResult<(
+    Vec<StoreResult<SubscriptionComponent>>,
+    Vec<StoreResult<SubscriptionAddOn>>,
+)> {
+    let shapes = ChargeShapes::load(conn, tenant_id, &components, &add_ons).await?;
+    let price_ids: Vec<PriceId> = components
+        .iter()
+        .filter_map(|r| r.price_id)
+        .chain(add_ons.iter().filter_map(|r| r.price_id))
+        .collect();
+    let prices = fetch_prices_on(conn, tenant_id, price_ids.into_iter(), on).await?;
+    let units = fetch_price_credit_units(conn, tenant_id, &prices).await?;
+    let components = components
+        .into_iter()
+        .map(|row| {
+            match resolve_fee_from_maps(
+                row.price_id,
+                shapes.of_component(&row).as_ref(),
+                &prices,
+                &units,
+            ) {
+                Some((period, fee)) => Ok(SubscriptionComponent {
+                    id: row.id,
+                    price_component_id: row.price_component_id,
+                    product_id: row.product_id,
+                    subscription_id: row.subscription_id,
+                    name: row.name,
+                    period,
+                    fee,
+                    price_id: row.price_id,
+                    effective_from: row.effective_from,
+                    effective_to: row.effective_to,
+                    lineage_id: row.lineage_id,
+                    added_by_amendment: row.added_by_amendment,
+                }),
+                None => row.try_into(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let add_ons = add_ons
+        .into_iter()
+        .map(|row| {
+            match resolve_fee_from_maps(
+                row.price_id,
+                shapes.of_add_on(&row).as_ref(),
+                &prices,
+                &units,
+            ) {
+                Some((period, fee)) => Ok(SubscriptionAddOn {
+                    id: row.id,
+                    subscription_id: row.subscription_id,
+                    add_on_id: row.add_on_id,
+                    name: row.name,
+                    period,
+                    fee,
+                    created_at: row.created_at,
+                    product_id: row.product_id,
+                    price_id: row.price_id,
+                    quantity: row.quantity,
+                    effective_from: row.effective_from,
+                    effective_to: row.effective_to,
+                    lineage_id: row.lineage_id,
+                    added_by_amendment: row.added_by_amendment,
+                }),
+                None => row.try_into(),
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok((components, add_ons))
 }
 
 /// The minimum in force on `on`, from the dated minimums.

@@ -336,8 +336,8 @@ struct FixedQuantityModel {
     seats: Option<(Option<u32>, Option<u32>)>,
 }
 
-/// The models behind the lines credited by quantity, by line: read from the fee each line's
-/// subscription component or add-on snapshotted when it was billed.
+/// The models behind the lines credited by quantity, by line: the fee each line's subscription
+/// component or add-on billed on the line's start.
 async fn fixed_quantity_models_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -347,6 +347,7 @@ async fn fixed_quantity_models_tx(
     use crate::domain::SubscriptionFee;
     use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
     use diesel_models::subscription_components::SubscriptionComponentRow;
+    use itertools::Itertools;
 
     let by_quantity: Vec<&LineItem> = invoice
         .line_items
@@ -370,51 +371,72 @@ async fn fixed_quantity_models_tx(
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-    let modelled =
-        |fee: Option<&serde_json::Value>, line: &LineItem| -> Option<FixedQuantityModel> {
-            match serde_json::from_value::<SubscriptionFee>(fee?.clone()).ok()? {
-                SubscriptionFee::Recurring {
-                    quantity,
-                    model: Some(model),
-                    ..
-                }
-                | SubscriptionFee::OneTime {
-                    quantity,
-                    model: Some(model),
-                    ..
-                } => Some(FixedQuantityModel {
-                    model,
-                    quantity: Decimal::from(quantity),
-                    seats: None,
-                }),
-                // A seat line bills its seats through the model at once: one instance of them all.
-                SubscriptionFee::Slot {
-                    model,
-                    min_slots,
-                    max_slots,
-                    ..
-                } if model.per_unit_rate().is_none() => Some(FixedQuantityModel {
-                    model,
-                    quantity: line.quantity?,
-                    seats: Some((min_slots, max_slots)),
-                }),
-                _ => None,
+    let mut fees: HashMap<(chrono::NaiveDate, uuid::Uuid), SubscriptionFee> = HashMap::new();
+    let days: Vec<chrono::NaiveDate> = by_quantity
+        .iter()
+        .map(|line| line.start_date)
+        .unique()
+        .collect();
+    for on in days {
+        let (on_components, on_add_ons) = crate::repositories::subscriptions::resolve_rows_on(
+            conn,
+            tenant_id,
+            components.clone(),
+            add_ons.clone(),
+            on,
+        )
+        .await?;
+        fees.extend(
+            on_components
+                .into_iter()
+                .map(|c| ((on, c.id.as_uuid()), c.fee)),
+        );
+        fees.extend(
+            on_add_ons
+                .into_iter()
+                .map(|a| ((on, a.id.as_uuid()), a.fee)),
+        );
+    }
+
+    let modelled = |fee: Option<&SubscriptionFee>, line: &LineItem| -> Option<FixedQuantityModel> {
+        match fee?.clone() {
+            SubscriptionFee::Recurring {
+                quantity,
+                model: Some(model),
+                ..
             }
-        };
+            | SubscriptionFee::OneTime {
+                quantity,
+                model: Some(model),
+                ..
+            } => Some(FixedQuantityModel {
+                model,
+                quantity: Decimal::from(quantity),
+                seats: None,
+            }),
+            // A seat line bills its seats through the model at once: one instance of them all.
+            SubscriptionFee::Slot {
+                model,
+                min_slots,
+                max_slots,
+                ..
+            } if model.per_unit_rate().is_none() => Some(FixedQuantityModel {
+                model,
+                quantity: line.quantity?,
+                seats: Some((min_slots, max_slots)),
+            }),
+            _ => None,
+        }
+    };
     Ok(by_quantity
         .into_iter()
         .filter_map(|line| {
-            let fee = match (line.sub_component_id, line.sub_add_on_id) {
-                (Some(id), _) => components
-                    .iter()
-                    .find(|c| c.id == id)
-                    .and_then(|c| c.legacy_fee.as_ref()),
-                (None, Some(id)) => add_ons
-                    .iter()
-                    .find(|a| a.id == id)
-                    .and_then(|a| a.legacy_fee.as_ref()),
+            let row = match (line.sub_component_id, line.sub_add_on_id) {
+                (Some(id), _) => Some(id.as_uuid()),
+                (None, Some(id)) => Some(id.as_uuid()),
                 (None, None) => None,
             };
+            let fee = row.and_then(|row| fees.get(&(line.start_date, row)));
             modelled(fee, line).map(|model| (line.local_id.clone(), model))
         })
         .collect())

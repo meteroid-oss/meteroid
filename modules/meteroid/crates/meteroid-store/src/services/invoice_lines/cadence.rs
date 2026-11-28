@@ -258,13 +258,12 @@ async fn bills_new_cadence_on(
     .await
     .map_err(Into::<Report<StoreError>>::into)?
     {
-        let component: crate::domain::SubscriptionComponent = row.try_into()?;
-        if component
-            .period
+        let period: crate::domain::enums::SubscriptionFeeBillingPeriod = row.period.into();
+        if period
             .as_billing_period_opt()
             .is_some_and(|period| period.as_months() == months)
         {
-            components.push(component.id);
+            components.push(row.id);
         }
     }
     if components.is_empty() {
@@ -343,9 +342,8 @@ async fn cadences_around(
         if !is_closed && !is_opened {
             continue;
         }
-        let component: crate::domain::SubscriptionComponent = row.try_into()?;
-        let Some(months) = component
-            .period
+        let period: crate::domain::enums::SubscriptionFeeBillingPeriod = row.period.into();
+        let Some(months) = period
             .as_billing_period_opt()
             .map(|period| period.as_months())
         else {

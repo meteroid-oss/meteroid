@@ -5,7 +5,7 @@ use common_domain::ids::{
 };
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable, Selectable)]
+#[derive(Queryable, Debug, Clone, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::subscription_component)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionComponentRow {

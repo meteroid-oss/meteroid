@@ -514,3 +514,63 @@ async fn editing_the_prices_keeps_an_unchanged_one() {
         "{err:?}"
     );
 }
+
+/// An add-on bought at a price made for the subscription is linked to that price and read from
+/// it: its row stores no fee of its own.
+#[tokio::test]
+async fn an_add_on_at_a_new_price_reads_its_fee_from_it() {
+    use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+
+    let env = test_env().await;
+    let (version, component) = plan(
+        &env,
+        vec![rate("EUR", BillingPeriodEnum::Monthly, dec!(20))],
+    )
+    .await;
+    let support = add_on(
+        &env,
+        vec![rate("EUR", BillingPeriodEnum::Monthly, dec!(90))],
+    )
+    .await;
+
+    let sub = subscribe(
+        &env,
+        CUST_UBER_ID,
+        version,
+        on(component, BillingPeriodEnum::Monthly),
+        Some(CreateSubscriptionAddOns {
+            add_ons: vec![CreateSubscriptionAddOn {
+                add_on_id: support.id,
+                customization: SubscriptionAddOnCustomization::PriceOverride {
+                    name: None,
+                    price_entry: PriceEntry::New(rate("EUR", BillingPeriodEnum::Monthly, dec!(75))),
+                },
+                quantity: 1,
+            }],
+        }),
+    )
+    .await
+    .expect("the subscription");
+
+    let rows = SubscriptionAddOnRow::list_by_subscription_id_active(
+        &mut env.conn().await,
+        &TENANT_ID,
+        &sub,
+        None,
+    )
+    .await
+    .expect("its add-ons");
+    let [row] = rows.as_slice() else {
+        panic!("one add-on, got {rows:?}");
+    };
+    assert!(row.legacy_fee.is_none(), "no stored fee");
+    assert_eq!(
+        add_on_fee_of(&env, sub).await,
+        (
+            dec!(75),
+            SubscriptionFeeBillingPeriod::Monthly,
+            row.price_id
+        )
+    );
+    assert!(row.price_id.is_some(), "its new price is linked");
+}

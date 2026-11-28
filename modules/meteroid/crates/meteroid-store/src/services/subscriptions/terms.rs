@@ -24,7 +24,7 @@ use crate::domain::subscription_phases::{
 };
 use crate::errors::StoreError;
 use crate::services::Services;
-use crate::services::subscriptions::phases::{fee_of, lineage_of, list_phases_tx};
+use crate::services::subscriptions::phases::{RowFees, lineage_of, list_phases_tx};
 
 fn db<T>(result: diesel_models::DbResult<T>) -> StoreResult<T> {
     result.map_err(Into::into)
@@ -441,17 +441,16 @@ async fn renewal_terms(
     );
     let mut components = Vec::new();
     let mut min_seats = Vec::new();
-    for row in db(SubscriptionComponentRow::list_fact_rows(conn, subscription_id).await)?
-        .iter()
-        .filter(|row| row.effective_to.is_none())
-    {
+    let rows = db(SubscriptionComponentRow::list_fact_rows(conn, subscription_id).await)?;
+    let fees = RowFees::on(conn, tenant_id, &rows, on).await?;
+    for row in rows.iter().filter(|row| row.effective_to.is_none()) {
         if row.effective_from > on {
             return Err(invalid(format!(
                 "{} changes on {}, after the term's end",
                 row.name, row.effective_from
             )));
         }
-        let fee = fee_of(row)?;
+        let fee = fees.fee_of(row)?;
         if let Some(price) = price_of(&fee) {
             components.push(PhaseComponent {
                 lineage: Some(lineage_of(row)),

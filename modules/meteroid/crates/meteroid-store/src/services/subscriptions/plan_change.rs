@@ -850,7 +850,8 @@ impl Services {
                 .plan_change_overlay(conn, prepared, new_plan_version_id, on)
                 .await?;
             let before = &prepared.subscription_details;
-            let mut after = crate::services::evaluate::preview::details_after(before, &overlay)?;
+            let mut after =
+                crate::services::evaluate::preview::details_after(conn, before, &overlay).await?;
             after.add_ons.retain(|a| {
                 !prepared
                     .ending_add_ons

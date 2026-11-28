@@ -728,12 +728,14 @@ pub(in crate::services) async fn write_discount_tx(
             )));
         }
     };
-    let fee: SubscriptionFee = current
-        .legacy_fee
-        .clone()
-        .map(SubscriptionFee::try_from)
-        .transpose()?
-        .ok_or_else(|| invalid(format!("{} has no fee to discount", current.name)))?;
+    let fee: SubscriptionFee = crate::services::subscriptions::phases::RowFees::on(
+        conn,
+        tenant_id,
+        &rows,
+        input.start_date,
+    )
+    .await?
+    .fee_of(current)?;
     let price = price_of(&fee).ok_or_else(|| {
         invalid(format!(
             "a discount prices rates, seats and capacities, not {}",

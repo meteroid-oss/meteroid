@@ -320,9 +320,11 @@ impl Services {
             .unwrap_or_else(|| prepared.change_date());
         let overlay = self.plan_change_overlay(conn, prepared, target, on).await?;
         let after = crate::services::evaluate::preview::details_after(
+            conn,
             &prepared.subscription_details,
             &overlay,
-        )?;
+        )
+        .await?;
         self.preview_next_invoice(conn, &after, &overlay, None)
             .await
     }
@@ -376,7 +378,8 @@ impl Services {
         )
         .await?;
         let overlay = crate::services::evaluate::load::Overlay::of(change);
-        let after = crate::services::evaluate::preview::details_after(details, &overlay)?;
+        let after =
+            crate::services::evaluate::preview::details_after(conn, details, &overlay).await?;
         self.preview_next_invoice(conn, &after, &overlay, None)
             .await
     }

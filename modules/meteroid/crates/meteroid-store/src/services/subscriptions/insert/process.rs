@@ -1238,6 +1238,10 @@ impl Services {
                                 let mut patched = comp.clone();
                                 patched.product_id = Some(*product_id);
                                 patched.price_id = *price_id;
+                                if patched.price_id.is_some() && patched.price_component_id.is_some()
+                                {
+                                    patched.legacy_fee = None;
+                                }
                                 patched_components.push(patched);
                             } else {
                                 patched_components.push(comp.clone());
@@ -1255,7 +1259,9 @@ impl Services {
                             {
                                 let mut patched = add_on.clone();
                                 patched.price_id = *price_id;
-                                patched.legacy_fee = None;
+                                if patched.price_id.is_some() {
+                                    patched.legacy_fee = None;
+                                }
                                 patched_add_ons.push(patched);
                             } else {
                                 patched_add_ons.push(add_on.clone());

@@ -99,7 +99,8 @@ pub(in crate::services) fn change_event(
 }
 
 /// The subscription as a change leaves it from its date, in memory.
-pub(in crate::services) fn details_after(
+pub(in crate::services) async fn details_after(
+    conn: &mut PgConn,
     details: &SubscriptionDetails,
     overlay: &Overlay,
 ) -> StoreResult<SubscriptionDetails> {
@@ -111,16 +112,22 @@ pub(in crate::services) fn details_after(
     after
         .add_ons
         .retain(|a| !rows.closes_add_ons.contains(&a.id));
-    for row in &rows.opens_components {
-        after
-            .price_components
-            .push(super::load::component_row_of(row).try_into()?);
-    }
-    for row in &rows.opens_add_ons {
-        after
-            .add_ons
-            .push(super::load::add_on_row_of(row).try_into()?);
-    }
+    let (components, add_ons) = crate::repositories::subscriptions::resolve_rows_on(
+        conn,
+        details.subscription.tenant_id,
+        rows.opens_components
+            .iter()
+            .map(super::load::component_row_of)
+            .collect(),
+        rows.opens_add_ons
+            .iter()
+            .map(super::load::add_on_row_of)
+            .collect(),
+        common_clock::now().date_naive(),
+    )
+    .await?;
+    after.price_components.extend(components);
+    after.add_ons.extend(add_ons);
     if let Some(window) = &rows.plan_window {
         after.subscription.plan_version_id = window.plan_version_id;
         after.subscription.period = window.cadence;
@@ -378,7 +385,7 @@ impl Services {
             .plan_change_overlay(conn, prepared, new_plan_version_id, change_date)
             .await?;
         if prepared.is_free_trial() {
-            let after = details_after(&prepared.subscription_details, &overlay)?;
+            let after = details_after(conn, &prepared.subscription_details, &overlay).await?;
             return self
                 .compute_invoice_from_facts_with(
                     conn,
@@ -426,10 +433,14 @@ impl Services {
             on,
         )
         .await?;
-        let bought = rows
-            .iter()
-            .map(|row| super::load::add_on_row_of(row).try_into())
-            .collect::<StoreResult<Vec<SubscriptionAddOn>>>()?;
+        let (_, bought) = crate::repositories::subscriptions::resolve_rows_on(
+            conn,
+            tenant_id,
+            Vec::new(),
+            rows.iter().map(super::load::add_on_row_of).collect(),
+            on,
+        )
+        .await?;
         let quote = self
             .compute_addon_purchase_invoice(conn, tenant_id, subscription_id, &rows, on)
             .await?

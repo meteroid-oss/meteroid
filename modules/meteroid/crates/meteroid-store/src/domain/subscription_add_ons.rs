@@ -153,11 +153,11 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOnRowNew, Self::Error> {
-        // Always snapshot the resolved fee into legacy_fee (even for v2 price-backed
-        // add-ons), mirroring subscription_component. The active loader still resolves
-        // v2 add-ons from their price_id; the snapshot is what lets historical/closed
-        // add-on rows be reconstructed for arrears billing after a mid-cycle removal.
-        let legacy_fee = Some(self.internal.fee.try_into()?);
+        // A priced row is read from its add-on and price; a repriced one keeps its fee.
+        let legacy_fee = match self.internal.price_id {
+            Some(_) => None,
+            None => Some(self.internal.fee.try_into()?),
+        };
 
         Ok(SubscriptionAddOnRowNew {
             id: SubscriptionAddOnId::new(),

@@ -388,7 +388,8 @@ impl Services {
             let mut missing = Vec::new();
             let (next_invoice, subscription_after) = {
                 let mut hypothetical =
-                    crate::services::evaluate::preview::details_after(&sub_details, &overlay)?;
+                    crate::services::evaluate::preview::details_after(&mut conn, &sub_details, &overlay)
+                        .await?;
                 if let Some(cadence) = &cadence {
                     let sub = &mut hypothetical.subscription;
                     sub.period = cadence.period;

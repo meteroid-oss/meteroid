@@ -755,11 +755,7 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<QuoteAddOnRowNew, Self::Error> {
-        let legacy_fee = if self.price_id.is_some() {
-            None
-        } else {
-            Some(self.fee.try_into()?)
-        };
+        let legacy_fee = Some(self.fee.try_into()?);
         let list_fee = self.list_fee.map(TryInto::try_into).transpose()?;
 
         Ok(QuoteAddOnRowNew {

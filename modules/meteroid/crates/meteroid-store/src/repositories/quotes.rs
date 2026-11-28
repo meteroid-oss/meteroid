@@ -1439,7 +1439,6 @@ async fn insert_quote_children(
                 let mut row: QuoteAddOnRowNew = ao.try_into()?;
                 if let Some(price_id) = materialized_addon_prices.get(&idx) {
                     row.price_id = Some(*price_id);
-                    row.legacy_fee = None;
                 }
                 Ok(row)
             })
