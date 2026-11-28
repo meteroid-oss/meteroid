@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { invalidOrigins, isOrigin, parseOrigins } from './apiKeyForm'
+import {
+  RESOURCES,
+  describeExpiry,
+  grantsAnything,
+  invalidOrigins,
+  isOrigin,
+  noAccess,
+  parseOrigins,
+} from './apiKeyForm'
 
 describe('allowed origins of a publishable key', () => {
   it('reads one origin per line or comma, each once, as the browser reports it', () => {
@@ -29,5 +37,33 @@ describe('allowed origins of a publishable key', () => {
   it('names the entries the server would refuse', () => {
     expect(invalidOrigins('https://acme.com\nacme.com/pricing')).toEqual(['acme.com/pricing'])
     expect(invalidOrigins('https://acme.com/')).toEqual([])
+  })
+})
+
+describe('secret key restrictions', () => {
+  it('starts with no access, and refuses a key granting nothing', () => {
+    const levels = noAccess()
+    expect(Object.keys(levels)).toHaveLength(RESOURCES.length)
+    expect(grantsAnything(levels)).toBe(false)
+    expect(grantsAnything({ ...levels, usage: 'write' })).toBe(true)
+  })
+
+  it('describes an expiry, warning within a week', () => {
+    const now = new Date('2026-11-27T12:00:00Z')
+    expect(describeExpiry(undefined, now)).toBeUndefined()
+    expect(describeExpiry('2026-11-27T11:00:00+00:00', now)).toEqual({
+      label: 'Expired',
+      tone: 'expired',
+    })
+    expect(describeExpiry('2026-11-27T15:00:00+00:00', now)).toEqual({
+      label: 'Expires in 3h',
+      tone: 'warning',
+    })
+    expect(describeExpiry('2026-12-02T12:00:00Z', now)?.tone).toBe('warning')
+    expect(describeExpiry('2026-11-27T14:59:59.123456+00:00', now)?.label).toBe('Expires in 3h')
+    expect(describeExpiry('2027-01-27T12:00:00+00:00', now)).toEqual({
+      label: 'Expires in 61 days',
+      tone: 'muted',
+    })
   })
 })

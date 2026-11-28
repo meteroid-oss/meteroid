@@ -791,6 +791,7 @@ async fn test_metering_ingestion() {
         .clone()
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "keep-last".to_string(),
+            ..Default::default()
         })
         .await
         .unwrap()

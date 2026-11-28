@@ -2,7 +2,7 @@ use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow, Publ
 use crate::enums::{ApiTokenKindEnum, TenantStatusEnum};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use common_domain::ids::{ApiTokenId, TenantId};
+use common_domain::ids::{ApiTokenId, BaseId, TenantId};
 use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
@@ -106,6 +106,54 @@ impl ApiTokenRow {
             .execute(conn)
             .await
             .attach("Error while recording api token usage")
+            .into_db_result()
+    }
+
+    /// Expires a rolled key at `old_expires_at` and points it at the key replacing it; 0 when it
+    /// was already replaced.
+    pub async fn mark_replaced(
+        conn: &mut PgConn,
+        param_id: &ApiTokenId,
+        param_tenant_id: TenantId,
+        new_id: ApiTokenId,
+        old_expires_at: chrono::NaiveDateTime,
+    ) -> DbResult<usize> {
+        use crate::schema::api_token::dsl::{api_token, expires_at, id, replaced_by_id, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            api_token
+                .filter(id.eq(param_id))
+                .filter(tenant_id.eq(param_tenant_id))
+                .filter(replaced_by_id.is_null()),
+        )
+        .set((expires_at.eq(old_expires_at), replaced_by_id.eq(new_id)));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while marking api token replaced")
+            .into_db_result()
+    }
+
+    /// Tells every process to forget the tenant's cached keys once the transaction commits.
+    pub async fn notify_changed(
+        conn: &mut PgConn,
+        channel: &str,
+        param_tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use diesel::sql_types::Text;
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query("SELECT pg_notify($1, $2)")
+            .bind::<Text, _>(channel)
+            .bind::<Text, _>(param_tenant_id.as_uuid().to_string())
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while notifying an api token change")
             .into_db_result()
     }
 

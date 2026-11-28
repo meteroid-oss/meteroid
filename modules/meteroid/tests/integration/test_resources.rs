@@ -866,6 +866,7 @@ async fn test_rest_resources_and_client_claims() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "resources".to_string(),
+                ..Default::default()
             },
         ))
         .await

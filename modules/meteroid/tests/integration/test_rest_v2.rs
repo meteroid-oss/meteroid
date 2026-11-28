@@ -127,6 +127,7 @@ pub(crate) async fn fixture() -> Fixture {
         .clone()
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "api-v2".to_owned(),
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -1208,6 +1209,7 @@ pub(crate) async fn second_tenant_key(f: &Fixture) -> String {
         .clone()
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "other".to_owned(),
+            ..Default::default()
         })
         .await
         .unwrap()

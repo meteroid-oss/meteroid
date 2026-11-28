@@ -35,6 +35,7 @@ pub mod webhook_catalog;
 
 pub mod addons;
 pub mod addresses;
+pub mod api_key_permissions;
 pub mod auth;
 pub mod batch_jobs;
 pub mod checkoutsessions;

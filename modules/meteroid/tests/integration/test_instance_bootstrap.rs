@@ -160,6 +160,41 @@ async fn test_instance_bootstrap_converges_and_installs_pinned_api_key() {
         .unwrap();
     assert_eq!(stale.status(), reqwest::StatusCode::UNAUTHORIZED);
 
+    // Rolling the pinned key leaves it expiring; the next run reinstalls it as the only key.
+    let pinned_id = setup
+        .store
+        .find_api_tokens_by_tenant_id(tenant_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|token| token.replaced_by_id.is_none())
+        .expect("the pinned key")
+        .id;
+    setup
+        .store
+        .roll_api_token(
+            common_domain::actor::Actor::System,
+            &pinned_id,
+            tenant_id,
+            chrono::Duration::hours(1),
+        )
+        .await
+        .expect("rolled");
+    meteroid::bootstrap::instance::bootstrap_instance(
+        &setup.store,
+        &bootstrap_config(&output, Some(pinned.clone())),
+    )
+    .await
+    .expect("a run after a roll converges");
+    let tokens = setup
+        .store
+        .find_api_tokens_by_tenant_id(tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(tokens.len(), 1, "{tokens:?}");
+    assert_eq!(tokens[0].id, pinned_id);
+    assert_eq!(tokens[0].expires_at, None, "reinstalled, not left expiring");
+
     let _ = std::fs::remove_file(&output);
 }
 

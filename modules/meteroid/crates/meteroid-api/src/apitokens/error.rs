@@ -16,6 +16,10 @@ pub enum ApiTokenApiError {
     #[code(InvalidArgument)]
     InvalidArgument(String),
 
+    #[error("Not found: {0}")]
+    #[code(NotFound)]
+    NotFound(String),
+
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -25,6 +29,9 @@ impl From<Report<StoreError>> for ApiTokenApiError {
     fn from(value: Report<StoreError>) -> Self {
         if let StoreError::InvalidArgument(msg) = value.current_context() {
             return Self::InvalidArgument(msg.clone());
+        }
+        if let StoreError::ValueNotFound(msg) = value.current_context() {
+            return Self::NotFound(msg.clone());
         }
         let err = Box::new(value.into_error());
         Self::StoreError("Error in api token service".to_string(), err)

@@ -104,6 +104,7 @@ pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenRespons
         .create_api_token(tonic::Request::new(
             meteroid_grpc::meteroid::api::apitokens::v1::CreateApiTokenRequest {
                 name: "test-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await

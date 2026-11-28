@@ -20,6 +20,10 @@ pub struct ApiTokenRow {
     #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
     pub allowed_origins: Vec<String>,
     pub publishable_key: Option<String>,
+    pub permissions: Option<serde_json::Value>,
+    pub expires_at: Option<NaiveDateTime>,
+    pub lifetime_days: Option<i32>,
+    pub replaced_by_id: Option<ApiTokenId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -35,6 +39,9 @@ pub struct ApiTokenRowNew {
     pub kind: ApiTokenKindEnum,
     pub allowed_origins: Vec<String>,
     pub publishable_key: Option<String>,
+    pub permissions: Option<serde_json::Value>,
+    pub expires_at: Option<NaiveDateTime>,
+    pub lifetime_days: Option<i32>,
 }
 
 // ApiTokenValidationRow: secret keys only (`find_by_id` filters on the kind).
@@ -45,6 +52,8 @@ pub struct ApiTokenValidationRow {
     pub id: ApiTokenId,
     pub tenant_id: TenantId,
     pub hash: String,
+    pub permissions: Option<serde_json::Value>,
+    pub expires_at: Option<NaiveDateTime>,
     #[diesel(select_expression = crate::schema::tenant::organization_id)]
     #[diesel(select_expression_type = crate::schema::tenant::organization_id)]
     pub organization_id: OrganizationId,

@@ -204,6 +204,7 @@ async fn usage_fixture() -> Fixture {
     .clone()
     .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
         name: "api-v2-usage".to_owned(),
+        ..Default::default()
     })
     .await
     .unwrap()

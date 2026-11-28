@@ -176,6 +176,7 @@ async fn fixture(usage: Arc<Ingesting>) -> Fixture {
     .api_tokens
     .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
         name: "api-v2-events".to_owned(),
+        ..Default::default()
     })
     .await
     .unwrap()

@@ -50,6 +50,7 @@ async fn test_rest_public_api_gaps() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "test-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await
@@ -206,6 +207,7 @@ async fn checkout_session_coupon_codes_are_checked_at_creation() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "test-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await
@@ -297,6 +299,7 @@ async fn refused_requests_answer_with_the_json_error() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "test-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await
@@ -385,6 +388,7 @@ async fn v1_usage_filter_is_refused_not_ignored() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "usage-filter-key".to_string(),
+                ..Default::default()
             },
         ))
         .await

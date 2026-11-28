@@ -30,6 +30,7 @@ async fn create_api_key(clients: &AllClients, name: &str) -> String {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: name.to_string(),
+                ..Default::default()
             },
         ))
         .await

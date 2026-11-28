@@ -10,6 +10,7 @@ use meteroid_grpc::meteroid::internal::v1::{
     ReportApiKeyUsageResponse, ResolveApiKeyRequest, ResolveApiKeyResponse,
     ResolveCustomerAliasesRequest, ResolveCustomerAliasesResponse, ResolvedId,
 };
+use meteroid_store::domain::api_key_permissions::{ApiResource, key_allows};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
@@ -79,6 +80,8 @@ impl InternalService for InternalServiceComponents {
             environment: crate::tenants::mapping::tenants::environment_to_grpc(res.environment)
                 as i32,
             keep_last_events: res.keep_last_events,
+            ingest_denied: !key_allows(res.permissions.as_ref(), ApiResource::Usage, true),
+            expires_at_unix: res.expires_at.map(|at| at.and_utc().timestamp()),
         }))
     }
 

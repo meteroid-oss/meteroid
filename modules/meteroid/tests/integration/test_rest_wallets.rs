@@ -153,6 +153,7 @@ pub(crate) async fn fixture() -> Fixture {
         .clone()
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "wallets".to_owned(),
+            ..Default::default()
         })
         .await
         .unwrap()

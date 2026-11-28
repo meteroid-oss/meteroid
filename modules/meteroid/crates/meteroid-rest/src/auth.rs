@@ -1,5 +1,6 @@
 use common_grpc::middleware::common::auth::BEARER_AUTH_HEADER;
 
+use crate::api_key_permissions::{Requirement, requirement};
 use crate::client::CLIENT_API_PREFIX;
 use axum::Json;
 use axum::extract::State;
@@ -11,13 +12,12 @@ use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::api_token_validator::{
     ApiTokenSecretDigest, ApiTokenValidator,
 };
-use common_grpc::middleware::server::auth::{
-    AuthenticatedState, AuthorizedAsTenant, TenantActor, TenantEnv,
-};
+use common_grpc::middleware::server::auth::{AuthorizedAsTenant, TenantActor, TenantEnv};
 use http::request::Parts;
 use http::{HeaderMap, Request};
 use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
 use meteroid_store::Store;
+use meteroid_store::domain::api_key_permissions::ApiKeyPermissions;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::repositories::api_tokens::{ApiTokensInterface, is_publishable_key};
@@ -68,7 +68,7 @@ pub fn is_customer_money_route(method: &http::Method, path: &str) -> bool {
 
 /// The customer money routes, plus the invoice writes that record, reverse or write off a payment,
 /// and issuing a credit note (it refunds or credits money back).
-fn is_restricted_money_route(method: &http::Method, path: &str) -> bool {
+pub(crate) fn is_restricted_money_route(method: &http::Method, path: &str) -> bool {
     if is_customer_money_route(method, path) {
         return true;
     }
@@ -181,8 +181,7 @@ async fn authenticate(
         return Ok(());
     }
 
-    // Handle API key
-    let authenticated_state = validate_api_key(&req.headers, store).await.map_err(|err| {
+    let validated = validate_api_key(&req.headers, store).await.map_err(|err| {
         log::debug!("Failed to validate API key: {err:?}");
         let json = Json(RestErrorResponse {
             code: ErrorCode::Unauthorized,
@@ -191,82 +190,141 @@ async fn authenticate(
         (err.status, json).into_response()
     })?;
 
-    if let AuthenticatedState::ApiKey {
-        tenant_id,
+    let ValidatedKey {
         id,
-        organization_id,
-        tenant_env,
-    } = authenticated_state
-    {
-        // Check for Connect Account header
-        // When present, resolve to the child org's tenant instead of the platform's.
-        if req.headers.contains_key(CONNECT_ACCOUNT_HEADER) {
-            if is_restricted_money_route(&req.method, path) {
-                return Err(money_route_forbidden());
-            }
-            let Some(delegated) = delegated else {
-                return Err(delegated_error(DelegatedAuthError {
-                    status: StatusCode::FORBIDDEN,
-                    message: "Acting for a connected account is not available".to_string(),
-                }));
-            };
-            let granted = delegated
-                .act_for_account(store, organization_id, id, req)
-                .await
-                .map_err(|err| {
-                    log::debug!("Failed to resolve connect account: {err:?}");
-                    delegated_error(err)
-                })?;
+        resolved:
+            ResolvedKey {
+                organization_id,
+                tenant_id,
+                tenant_env,
+                permissions,
+                expires_at,
+            },
+    } = validated;
+    if expires_at.is_some_and(|at| at <= common_clock::wall().naive_utc()) {
+        let json = Json(RestErrorResponse {
+            code: ErrorCode::Unauthorized,
+            message: "This API key has expired".to_string(),
+        });
+        return Err((StatusCode::UNAUTHORIZED, json).into_response());
+    }
+    check_key_permissions(permissions.as_ref(), &req.method, path)?;
 
-            req.extensions.insert(granted.authorized);
-            req.extensions.insert(granted.reach);
-            req.extensions.insert(DelegatedCredentials);
-            return Ok(());
+    // Check for Connect Account header
+    // When present, resolve to the child org's tenant instead of the platform's.
+    if req.headers.contains_key(CONNECT_ACCOUNT_HEADER) {
+        if is_restricted_money_route(&req.method, path) {
+            return Err(money_route_forbidden());
         }
-
-        // Check express org restrictions for direct API key access
-        if is_organization_express_cached(store, organization_id)
+        let Some(delegated) = delegated else {
+            return Err(delegated_error(DelegatedAuthError {
+                status: StatusCode::FORBIDDEN,
+                message: "Acting for a connected account is not available".to_string(),
+            }));
+        };
+        let granted = delegated
+            .act_for_account(store, organization_id, id, req)
             .await
             .map_err(|err| {
-                let json = Json(RestErrorResponse {
-                    code: ErrorCode::Unauthorized,
-                    message: err.msg.unwrap_or_else(|| "Unauthorized".to_string()),
-                });
-                (err.status, json).into_response()
-            })?
-        {
-            if !EXPRESS_ALLOWED_PATH_PREFIXES
-                .iter()
-                .any(|prefix| path.starts_with(prefix))
-            {
-                let json = Json(RestErrorResponse {
-                    code: ErrorCode::Unauthorized,
-                    message: "This endpoint is not accessible by express organizations".to_string(),
-                });
-                return Err((StatusCode::FORBIDDEN, json).into_response());
-            }
-            if is_restricted_money_route(&req.method, path) {
-                return Err(money_route_forbidden());
-            }
-            req.extensions.insert(DelegatedCredentials);
-        }
+                log::debug!("Failed to resolve connect account: {err:?}");
+                delegated_error(err)
+            })?;
 
-        let state = AuthorizedAsTenant {
-            tenant_id,
-            organization_id,
-            actor: TenantActor::ApiKey(id),
-            tenant_env,
-        };
-        req.extensions.insert(state);
+        req.extensions.insert(granted.authorized);
+        req.extensions.insert(granted.reach);
+        req.extensions.insert(DelegatedCredentials);
         return Ok(());
     }
 
-    let err = Json(RestErrorResponse {
-        code: ErrorCode::Unauthorized,
-        message: "Unauthorized".to_string(),
-    });
+    // Check express org restrictions for direct API key access
+    if is_organization_express_cached(store, organization_id)
+        .await
+        .map_err(|err| {
+            let json = Json(RestErrorResponse {
+                code: ErrorCode::Unauthorized,
+                message: err.msg.unwrap_or_else(|| "Unauthorized".to_string()),
+            });
+            (err.status, json).into_response()
+        })?
+    {
+        if !EXPRESS_ALLOWED_PATH_PREFIXES
+            .iter()
+            .any(|prefix| path.starts_with(prefix))
+        {
+            let json = Json(RestErrorResponse {
+                code: ErrorCode::Unauthorized,
+                message: "This endpoint is not accessible by express organizations".to_string(),
+            });
+            return Err((StatusCode::FORBIDDEN, json).into_response());
+        }
+        if is_restricted_money_route(&req.method, path) {
+            return Err(money_route_forbidden());
+        }
+        req.extensions.insert(DelegatedCredentials);
+    }
 
-    Err((StatusCode::UNAUTHORIZED, err).into_response())
+    let state = AuthorizedAsTenant {
+        tenant_id,
+        organization_id,
+        actor: TenantActor::ApiKey(id),
+        tenant_env,
+    };
+    req.extensions.insert(state);
+    Ok(())
+}
+
+fn check_key_permissions(
+    permissions: Option<&ApiKeyPermissions>,
+    method: &http::Method,
+    path: &str,
+) -> Result<(), Response> {
+    let Some(permissions) = permissions else {
+        return Ok(());
+    };
+    let message = match requirement(method, path) {
+        Requirement::AnyKey => return Ok(()),
+        Requirement::Resource { resource, write } if permissions.allows(resource, write) => {
+            return Ok(());
+        }
+        Requirement::Resource { resource, write } => format!(
+            "This API key has no {} access to {resource}",
+            if write { "write" } else { "read" }
+        ),
+        Requirement::AllWrite(resources)
+            if resources.iter().all(|r| permissions.allows(*r, true)) =>
+        {
+            return Ok(());
+        }
+        Requirement::AllWrite(resources) => format!(
+            "This endpoint needs write access to {}",
+            resources
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Requirement::Unrestricted => "This endpoint needs an API key with full access".to_string(),
+    };
+    let json = Json(RestErrorResponse {
+        code: ErrorCode::Forbidden,
+        message,
+    });
+    Err((StatusCode::FORBIDDEN, json).into_response())
+}
+
+/// A secret key the store resolved and whose secret matched.
+#[derive(Clone)]
+struct ResolvedKey {
+    organization_id: OrganizationId,
+    tenant_id: TenantId,
+    tenant_env: TenantEnv,
+    permissions: Option<ApiKeyPermissions>,
+    expires_at: Option<chrono::NaiveDateTime>,
+}
+
+struct ValidatedKey {
+    id: ApiTokenId,
+    resolved: ResolvedKey,
 }
 
 #[derive(Debug)]
@@ -287,7 +345,7 @@ pub async fn forget_api_tokens(tenant: Option<TenantId>) {
     let stale: Vec<_> = cache
         .key_order()
         .zip(cache.value_order())
-        .filter(|(_, (_, (_, cached_tenant, _)))| *cached_tenant == tenant)
+        .filter(|(_, (_, resolved))| resolved.tenant_id == tenant)
         .map(|(key, _)| *key)
         .collect();
     for key in stale {
@@ -308,7 +366,7 @@ async fn validate_api_token_by_id_cached(
     store: &Store,
     validator: &ApiTokenValidator,
     api_key_id: &ApiTokenId,
-) -> Result<(OrganizationId, TenantId, TenantEnv), AuthStatus> {
+) -> Result<ResolvedKey, AuthStatus> {
     let res = store
         .get_api_token_by_id_for_validation(api_key_id)
         .await
@@ -350,7 +408,13 @@ async fn validate_api_token_by_id_cached(
         TenantEnv::NonProduction
     };
 
-    Ok((res.organization_id, res.tenant_id, tenant_env))
+    Ok(ResolvedKey {
+        organization_id: res.organization_id,
+        tenant_id: res.tenant_id,
+        tenant_env,
+        permissions: res.permissions,
+        expires_at: res.expires_at,
+    })
 }
 
 #[cached(
@@ -377,7 +441,7 @@ async fn is_organization_express_cached(
 async fn validate_api_key(
     header_map: &HeaderMap,
     store: &Store,
-) -> Result<AuthenticatedState, AuthStatus> {
+) -> Result<ValidatedKey, AuthStatus> {
     let api_key = header_map
         .get(BEARER_AUTH_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -409,15 +473,9 @@ async fn validate_api_key(
             msg: Some("Invalid API key format".to_string()),
         })?;
 
-    let (organization_id, tenant_id, tenant_env) =
-        validate_api_token_by_id_cached(store, &validator, &id).await?;
+    let resolved = validate_api_token_by_id_cached(store, &validator, &id).await?;
 
-    Ok(AuthenticatedState::ApiKey {
-        id,
-        tenant_id,
-        organization_id,
-        tenant_env,
-    })
+    Ok(ValidatedKey { id, resolved })
 }
 
 #[cfg(test)]

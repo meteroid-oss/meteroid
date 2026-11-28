@@ -609,6 +609,10 @@ diesel::table! {
         kind -> ApiTokenKindEnum,
         allowed_origins -> Array<Nullable<Text>>,
         publishable_key -> Nullable<Text>,
+        permissions -> Nullable<Jsonb>,
+        expires_at -> Nullable<Timestamp>,
+        lifetime_days -> Nullable<Int4>,
+        replaced_by_id -> Nullable<Uuid>,
     }
 }
 

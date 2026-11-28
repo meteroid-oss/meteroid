@@ -1553,6 +1553,7 @@ impl Metered {
         .api_tokens
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "checks-v2".to_owned(),
+            ..Default::default()
         })
         .await
         .unwrap()

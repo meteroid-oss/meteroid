@@ -5,6 +5,7 @@ use diesel_models::api_tokens::{
 };
 use o2o::o2o;
 
+use crate::domain::api_key_permissions::ApiKeyPermissions;
 use crate::domain::enums::{ApiTokenKind, TenantEnvironmentEnum};
 
 #[derive(Debug, o2o)]
@@ -14,9 +15,16 @@ pub struct ApiTokenNew {
     pub tenant_id: TenantId,
 }
 
+/// How a secret key is restricted. The default is the whole API, forever.
+#[derive(Debug, Clone, Default)]
+pub struct SecretKeyPolicy {
+    pub permissions: Option<ApiKeyPermissions>,
+    /// Each key expires this long after it is created; rolling it starts a new one.
+    pub lifetime_days: Option<i32>,
+}
+
 #[derive(Debug, o2o)]
 #[from_owned(ApiTokenRow)]
-#[owned_into(ApiTokenRow)]
 pub struct ApiToken {
     pub id: ApiTokenId,
     pub name: String,
@@ -32,6 +40,12 @@ pub struct ApiToken {
     pub allowed_origins: Vec<String>,
     /// The whole publishable key, shown again since it is not a secret; none for a secret key.
     pub publishable_key: Option<String>,
+    #[from(~.map(ApiKeyPermissions::from_db))]
+    pub permissions: Option<ApiKeyPermissions>,
+    pub expires_at: Option<NaiveDateTime>,
+    pub lifetime_days: Option<i32>,
+    /// The key it was rolled into; it keeps working until `expires_at`.
+    pub replaced_by_id: Option<ApiTokenId>,
 }
 
 #[derive(Debug, o2o)]
@@ -41,6 +55,9 @@ pub struct ApiTokenValidation {
     pub tenant_id: TenantId,
     pub organization_id: OrganizationId,
     pub hash: String,
+    #[from(~.map(ApiKeyPermissions::from_db))]
+    pub permissions: Option<ApiKeyPermissions>,
+    pub expires_at: Option<NaiveDateTime>,
     #[map(~.into())]
     pub environment: TenantEnvironmentEnum,
     pub keep_last_events: bool,

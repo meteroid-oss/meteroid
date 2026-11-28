@@ -235,14 +235,19 @@ async fn install_api_key(
         None => None,
     };
 
-    let existing = store
+    // A rolled key leaves its predecessor under the same name until it expires.
+    let existing: Vec<_> = store
         .find_api_tokens_by_tenant_id(tenant.id)
         .await?
         .into_iter()
-        .find(|token| token.name == API_TOKEN_NAME);
+        .filter(|token| token.name == API_TOKEN_NAME)
+        .collect();
+    let supplied_id = parsed.as_ref().map(|(_, (id, _))| *id);
 
-    if let (Some((key, (id, _))), Some(existing)) = (&parsed, &existing)
-        && existing.id == *id
+    if let Some((key, (id, _))) = &parsed
+        && existing.iter().any(|token| {
+            token.id == *id && token.replaced_by_id.is_none() && token.expires_at.is_none()
+        })
         && supplied_key_already_installed(store, id, key).await?
     {
         return Ok(key.clone());
@@ -254,11 +259,12 @@ async fn install_api_key(
     };
 
     // Same id and a different secret is the one case that cannot insert first.
-    let replaces_same_row =
-        matches!((&parsed, &existing), (Some((_, (id, _))), Some(existing)) if existing.id == *id);
-    if replaces_same_row && let Some(existing) = &existing {
+    let (same_row, others): (Vec<_>, Vec<_>) = existing
+        .into_iter()
+        .partition(|token| Some(token.id) == supplied_id);
+    for token in same_row {
         store
-            .delete_api_token(actor.clone(), &existing.id, tenant.id)
+            .delete_api_token(actor.clone(), &token.id, tenant.id)
             .await?;
     }
 
@@ -275,9 +281,9 @@ async fn install_api_key(
         }
     };
 
-    if !replaces_same_row && let Some(existing) = existing {
+    for token in others {
         store
-            .delete_api_token(actor.clone(), &existing.id, tenant.id)
+            .delete_api_token(actor.clone(), &token.id, tenant.id)
             .await?;
     }
 

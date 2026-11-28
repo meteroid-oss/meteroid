@@ -13,6 +13,9 @@ message ListApiTokensResponse {
 
 message CreateApiTokenRequest {
   string name = 1;
+  // Unset: the whole API.
+  optional ApiKeyPermissions permissions = 2;
+  optional int32 lifetime_days = 3;
 }
 
 message CreateApiTokenResponse {
@@ -31,6 +34,18 @@ message CreatePublishableKeyResponse {
   ApiToken details = 1;
 }
 
+// Replaces a secret key with a new one of the same name, permissions and lifetime.
+message RollApiTokenRequest {
+  string id = 1;
+  // How long the old key keeps working; 0 stops it now. At most 30 days.
+  uint32 grace_period_hours = 2;
+}
+
+message RollApiTokenResponse {
+  string api_key = 1;
+  ApiToken details = 2;
+}
+
 message RevokeApiTokenRequest {
   string id = 1;
 }
@@ -41,5 +56,6 @@ service ApiTokensService {
   rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse) {}
   rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse) {}
   rpc CreatePublishableKey(CreatePublishableKeyRequest) returns (CreatePublishableKeyResponse) {}
+  rpc RollApiToken(RollApiTokenRequest) returns (RollApiTokenResponse) {}
   rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse) {}
 }

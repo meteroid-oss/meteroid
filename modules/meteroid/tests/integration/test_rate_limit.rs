@@ -81,6 +81,7 @@ async fn test_rate_limit() {
         .clone()
         .create_api_token(tonic::Request::new(CreateApiTokenRequest {
             name: "rate-limit-test-key".to_string(),
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -542,6 +543,7 @@ async fn test_usage_cost_reads_share_a_per_minute_quota() {
     .clone()
     .create_api_token(tonic::Request::new(CreateApiTokenRequest {
         name: "usage-costs-quota".to_string(),
+        ..Default::default()
     }))
     .await
     .unwrap()

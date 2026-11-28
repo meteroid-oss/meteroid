@@ -114,6 +114,7 @@ async fn test_publishable_keys_read_the_public_routes_only() {
     let secret = api_tokens
         .create_api_token(tonic::Request::new(CreateApiTokenRequest {
             name: "server".to_string(),
+            ..Default::default()
         }))
         .await
         .unwrap()

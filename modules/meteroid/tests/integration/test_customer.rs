@@ -350,6 +350,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "test-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await

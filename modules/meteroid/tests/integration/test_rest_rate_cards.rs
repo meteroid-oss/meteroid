@@ -60,6 +60,7 @@ async fn fixture() -> Fixture {
         .clone()
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "rate-cards".to_owned(),
+            ..Default::default()
         })
         .await
         .unwrap()

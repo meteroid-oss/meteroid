@@ -403,6 +403,7 @@ impl Api {
             .clone()
             .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
                 name: "usage-costs".to_owned(),
+                ..Default::default()
             })
             .await
             .unwrap()

@@ -8,6 +8,7 @@ mod scenarios;
 mod subscription;
 mod test_account_ownership;
 mod test_add_ons;
+mod test_api_key_permissions;
 mod test_auth_api_key;
 mod test_auth_hardening;
 mod test_auth_jwt;

@@ -1,5 +1,6 @@
 use crate::domain::ApiTokenValidation;
-use crate::domain::api_tokens::{ApiToken, PublishableKey};
+use crate::domain::api_key_permissions::{AccessLevel, ApiKeyPermissions};
+use crate::domain::api_tokens::{ApiToken, PublishableKey, SecretKeyPolicy};
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::{ApiTokenKind, TenantEnvironmentEnum};
 use crate::errors::StoreError;
@@ -40,6 +41,27 @@ pub trait ApiTokensInterface {
         &self,
         actor: Actor,
         plan: domain::ApiTokenNew,
+    ) -> StoreResult<(String, ApiToken)> {
+        self.insert_api_token_with_policy(actor, plan, SecretKeyPolicy::default())
+            .await
+    }
+
+    async fn insert_api_token_with_policy(
+        &self,
+        actor: Actor,
+        entity: domain::ApiTokenNew,
+        policy: SecretKeyPolicy,
+    ) -> StoreResult<(String, ApiToken)>;
+
+    /// Replaces a secret key with a new one of the same name and policy. The old one keeps
+    /// working for `grace` (never longer than it already would), so callers can swap keys
+    /// without downtime.
+    async fn roll_api_token(
+        &self,
+        actor: Actor,
+        id: &ApiTokenId,
+        tenant_id: TenantId,
+        grace: chrono::Duration,
     ) -> StoreResult<(String, ApiToken)>;
 
     /// Installs a caller-supplied key. `id` is the token id the key already encodes, so
@@ -139,6 +161,9 @@ impl ApiTokensInterface for Store {
             kind: ApiTokenKind::Publishable.into(),
             allowed_origins,
             publishable_key: Some(key),
+            permissions: None,
+            expires_at: None,
+            lifetime_days: None,
         };
         insert_row(self, actor, row).await
     }
@@ -174,23 +199,136 @@ impl ApiTokensInterface for Store {
         Ok(())
     }
 
-    async fn insert_api_token(
+    async fn insert_api_token_with_policy(
         &self,
         actor: Actor,
         entity: domain::ApiTokenNew,
+        policy: SecretKeyPolicy,
     ) -> StoreResult<(String, ApiToken)> {
+        validate_policy(&policy)?;
         let env = tenant_environment(self, entity.tenant_id).await?;
 
         let id = ApiTokenId::new();
-        let secret = nanoid!(28, &common_utils::rng::BASE62_ALPHABET);
-        let api_key = format!(
-            "{}{}/{}",
-            key_prefix(&env),
-            &secret,
-            base62::encode(id.as_u128())
-        );
+        let (api_key, secret) = mint_secret_key(id, &env);
+        let row = secret_key_row(entity, id, &secret, &env, policy)?;
+        let token = insert_row(self, actor, row).await?;
 
-        let token = insert_api_token_row(self, actor, entity, id, &secret, &env).await?;
+        Ok((api_key, token))
+    }
+
+    async fn roll_api_token(
+        &self,
+        actor: Actor,
+        id: &ApiTokenId,
+        tenant_id: TenantId,
+        grace: chrono::Duration,
+    ) -> StoreResult<(String, ApiToken)> {
+        if grace < chrono::Duration::zero() || grace > MAX_ROLL_GRACE {
+            return Err(StoreError::InvalidArgument(format!(
+                "the old key's grace period must be between 0 and {} days",
+                MAX_ROLL_GRACE.num_days()
+            ))
+            .into());
+        }
+
+        let env = tenant_environment(self, tenant_id).await?;
+        let mut conn = self.get_conn().await?;
+        let old: ApiToken = ApiTokenRow::find_by_ids(&mut conn, tenant_id, &[*id])
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| StoreError::ValueNotFound("api token".to_string()))?
+            .into();
+        drop(conn);
+
+        if old.kind != ApiTokenKind::Secret {
+            return Err(
+                StoreError::InvalidArgument("only a secret key can be rolled".to_string()).into(),
+            );
+        }
+        if old.replaced_by_id.is_some() {
+            return Err(StoreError::InvalidArgument(
+                "this key was already rolled; roll the key that replaced it".to_string(),
+            )
+            .into());
+        }
+
+        let now = common_clock::wall().naive_utc();
+        if old.expires_at.is_some_and(|at| at <= now) {
+            return Err(StoreError::InvalidArgument(
+                "an expired key cannot be rolled; create a new one".to_string(),
+            )
+            .into());
+        }
+        let old_expires_at = old
+            .expires_at
+            .map_or(now + grace, |current| current.min(now + grace));
+
+        let new_id = ApiTokenId::new();
+        let (api_key, secret) = mint_secret_key(new_id, &env);
+        let row = secret_key_row(
+            domain::ApiTokenNew {
+                name: old.name.clone(),
+                tenant_id,
+            },
+            new_id,
+            &secret,
+            &env,
+            SecretKeyPolicy {
+                permissions: old.permissions.clone(),
+                lifetime_days: old.lifetime_days,
+            },
+        )?;
+
+        let token = self
+            .transaction(|conn| {
+                let actor = &actor;
+                let row = &row;
+                async move {
+                    let token: ApiToken = row
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .into();
+                    let replaced =
+                        ApiTokenRow::mark_replaced(conn, id, tenant_id, new_id, old_expires_at)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    if replaced == 0 {
+                        return Err(StoreError::InvalidArgument(
+                            "this key was already rolled; roll the key that replaced it"
+                                .to_string(),
+                        )
+                        .into());
+                    }
+                    ApiTokenRow::notify_changed(conn, crate::tenant_changes::CHANNEL, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let activity = Activity::new(
+                        ActivityType::ApiTokenCreated,
+                        EntityType::ApiToken,
+                        new_id.as_uuid(),
+                    )
+                    .with_metadata(serde_json::json!({
+                        "name": row.name,
+                        "hint": row.hint,
+                        "rolled_from": id.to_string(),
+                        "previous_expires_at": old_expires_at,
+                    }));
+                    self.internal
+                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
+                    Ok(token)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::api_token_created(actor, new_id, tenant_id))
+            .await;
 
         Ok((api_key, token))
     }
@@ -204,7 +342,14 @@ impl ApiTokensInterface for Store {
     ) -> StoreResult<ApiToken> {
         let env = tenant_environment(self, entity.tenant_id).await?;
 
-        insert_api_token_row(self, actor, entity, id, secret.expose_secret(), &env).await
+        let row = secret_key_row(
+            entity,
+            id,
+            secret.expose_secret(),
+            &env,
+            SecretKeyPolicy::default(),
+        )?;
+        insert_row(self, actor, row).await
     }
 
     async fn delete_api_token(
@@ -217,6 +362,9 @@ impl ApiTokensInterface for Store {
             let actor = &actor;
             async move {
                 ApiTokenRow::delete_by_id(conn, id, tenant_id)
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?;
+                ApiTokenRow::notify_changed(conn, crate::tenant_changes::CHANNEL, tenant_id)
                     .await
                     .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -307,24 +455,62 @@ async fn tenant_environment(
     Ok(tenant.environment.into())
 }
 
+/// The longest an old key may keep working once rolled.
+pub const MAX_ROLL_GRACE: chrono::Duration = chrono::Duration::days(30);
+pub const MAX_LIFETIME_DAYS: i32 = 3650;
+
+/// A restricted key granting nothing is a mistake rather than a policy: refused.
+fn validate_policy(policy: &SecretKeyPolicy) -> StoreResult<()> {
+    if policy
+        .permissions
+        .as_ref()
+        .is_some_and(|p| p.grants().all(|(_, level)| level == AccessLevel::None))
+    {
+        return Err(StoreError::InvalidArgument(
+            "a restricted key must grant read or write access to at least one resource".to_string(),
+        )
+        .into());
+    }
+    validate_lifetime(policy.lifetime_days)
+}
+
+fn validate_lifetime(lifetime_days: Option<i32>) -> StoreResult<()> {
+    match lifetime_days {
+        Some(days) if !(1..=MAX_LIFETIME_DAYS).contains(&days) => Err(StoreError::InvalidArgument(
+            format!("a key's lifetime must be between 1 and {MAX_LIFETIME_DAYS} days"),
+        )
+        .into()),
+        _ => Ok(()),
+    }
+}
+
+/// The whole key, shown once, and its random segment.
+fn mint_secret_key(id: ApiTokenId, env: &TenantEnvironmentEnum) -> (String, String) {
+    let secret = nanoid!(API_KEY_SECRET_LEN, &common_utils::rng::BASE62_ALPHABET);
+    let api_key = format!(
+        "{}{}/{}",
+        key_prefix(env),
+        &secret,
+        base62::encode(id.as_u128())
+    );
+    (api_key, secret)
+}
+
 /// The single hashing path: a key we mint and a key an operator supplies are stored the
 /// same way, so both validate through `ApiTokenValidator`.
-async fn insert_api_token_row(
-    store: &Store,
-    actor: Actor,
+fn secret_key_row(
     entity: domain::ApiTokenNew,
     id: ApiTokenId,
     secret: &str,
     env: &TenantEnvironmentEnum,
-) -> StoreResult<ApiToken> {
+    policy: SecretKeyPolicy,
+) -> StoreResult<ApiTokenRowNew> {
     validate_api_key_secret(secret)?;
 
     let prefix = key_prefix(env);
-
-    // encode in base62. Identifier is added to the api key, and used to retrieve the hash.
+    // Identifier is added to the api key, and used to retrieve the hash.
     let id_part = base62::encode(id.as_u128());
 
-    // Generate the hash that we will store in db
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
@@ -339,22 +525,23 @@ async fn insert_api_token_row(
         })?
         .to_string();
 
-    // generate a hint that will also be stored
-    let hint = hint(&prefix, secret, &id_part);
-
-    let insertable_entity = ApiTokenRowNew {
+    let created_at = common_clock::now().naive_utc();
+    Ok(ApiTokenRowNew {
         id,
         name: entity.name,
-        created_at: common_clock::now().naive_utc(),
+        created_at,
         tenant_id: entity.tenant_id,
         hash: api_key_hash,
-        hint,
+        hint: hint(&prefix, secret, &id_part),
         kind: ApiTokenKind::Secret.into(),
         allowed_origins: vec![],
         publishable_key: None,
-    };
-
-    insert_row(store, actor, insertable_entity).await
+        permissions: policy.permissions.as_ref().map(ApiKeyPermissions::to_db),
+        expires_at: policy
+            .lifetime_days
+            .map(|days| common_clock::wall().naive_utc() + chrono::Duration::days(days.into())),
+        lifetime_days: policy.lifetime_days,
+    })
 }
 
 /// Inserts the key with its audit entry, then announces it.

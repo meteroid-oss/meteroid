@@ -9,6 +9,36 @@ enum ApiTokenKind {
   API_TOKEN_KIND_PUBLISHABLE = 1;
 }
 
+// What a restricted secret key reaches. See the REST API reference for the routes of each.
+enum ApiResource {
+  API_RESOURCE_UNSPECIFIED = 0;
+  API_RESOURCE_CUSTOMERS = 1;
+  API_RESOURCE_SUBSCRIPTIONS = 2;
+  API_RESOURCE_INVOICES = 3;
+  API_RESOURCE_PAYMENTS = 4;
+  API_RESOURCE_CATALOG = 5;
+  API_RESOURCE_USAGE = 6;
+  API_RESOURCE_ENTITLEMENTS = 7;
+  API_RESOURCE_WEBHOOKS = 8;
+  API_RESOURCE_BATCH_JOBS = 9;
+}
+
+enum ApiAccessLevel {
+  API_ACCESS_LEVEL_NONE = 0;
+  API_ACCESS_LEVEL_READ = 1;
+  API_ACCESS_LEVEL_WRITE = 2;
+}
+
+message ApiKeyGrant {
+  ApiResource resource = 1;
+  ApiAccessLevel level = 2;
+}
+
+// A resource left out is not accessible.
+message ApiKeyPermissions {
+  repeated ApiKeyGrant grants = 1;
+}
+
 message ApiToken {
   string id = 1;
   string tenant_id = 2;
@@ -21,4 +51,11 @@ message ApiToken {
   optional string publishable_key = 8;
   // The browser origins a publishable key is accepted from; none accepts any.
   repeated string allowed_origins = 9;
+  // Unset: a secret key with access to the whole API.
+  optional ApiKeyPermissions permissions = 10;
+  optional string expires_at = 11;
+  // Each key expires this long after it is created; rolling it starts a new one.
+  optional int32 lifetime_days = 12;
+  // The key this one was rolled into; it keeps working until `expires_at`.
+  optional string replaced_by_id = 13;
 }

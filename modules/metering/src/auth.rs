@@ -40,6 +40,8 @@ struct ResolvedApiKey {
     tenant_id: TenantId,
     tenant_env: TenantEnv,
     settings: TenantIngestSettings,
+    ingest_denied: bool,
+    expires_at_unix: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +223,8 @@ async fn validate_api_token_by_id_cached(
         settings: TenantIngestSettings {
             keep_last_events: inner.keep_last_events,
         },
+        ingest_denied: inner.ingest_denied,
+        expires_at_unix: inner.expires_at_unix,
     })
 }
 
@@ -242,6 +246,18 @@ pub async fn validate_api_key(
     })?);
 
     let resolved = validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
+
+    if resolved
+        .expires_at_unix
+        .is_some_and(|at| at <= chrono::Utc::now().timestamp())
+    {
+        return Err(Status::unauthenticated("This API key has expired"));
+    }
+    if resolved.ingest_denied {
+        return Err(Status::permission_denied(
+            "This API key has no write access to usage",
+        ));
+    }
 
     Ok((
         AuthenticatedState::ApiKey {
@@ -279,6 +295,8 @@ mod tests {
     struct MockInternal {
         hash: String,
         resolve_calls: Arc<AtomicUsize>,
+        ingest_denied: bool,
+        expires_at_unix: Option<i64>,
     }
 
     #[tonic::async_trait]
@@ -302,6 +320,8 @@ mod tests {
                 environment:
                     meteroid_grpc::meteroid::api::tenants::v1::TenantEnvironmentEnum::Sandbox as i32,
                 keep_last_events: true,
+                ingest_denied: self.ingest_denied,
+                expires_at_unix: self.expires_at_unix,
             }))
         }
 
@@ -350,6 +370,16 @@ mod tests {
         InternalServiceClient<LayeredClientService>,
         Arc<AtomicUsize>,
     ) {
+        spawn_internal_service_with(false, None).await
+    }
+
+    async fn spawn_internal_service_with(
+        ingest_denied: bool,
+        expires_at_unix: Option<i64>,
+    ) -> (
+        InternalServiceClient<LayeredClientService>,
+        Arc<AtomicUsize>,
+    ) {
         let resolve_calls = Arc::new(AtomicUsize::new(0));
         let incoming = TcpIncoming::bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let addr = incoming.local_addr().unwrap();
@@ -357,6 +387,8 @@ mod tests {
         let service = InternalServiceServer::new(MockInternal {
             hash: argon2_hash(SECRET),
             resolve_calls: resolve_calls.clone(),
+            ingest_denied,
+            expires_at_unix,
         });
 
         tokio::spawn(async move {
@@ -460,5 +492,30 @@ mod tests {
             2,
             "failed validations must not be cached"
         );
+    }
+
+    #[tokio::test]
+    async fn a_key_without_usage_write_cannot_ingest() {
+        let (client, _) = spawn_internal_service_with(true, None).await;
+        let (valid_key, _) = key_pair();
+
+        let err = validate_api_key(&headers(&valid_key), &client)
+            .await
+            .err()
+            .expect("denied");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn an_expired_key_cannot_ingest() {
+        let expired = chrono::Utc::now().timestamp() - 1;
+        let (client, _) = spawn_internal_service_with(false, Some(expired)).await;
+        let (valid_key, _) = key_pair();
+
+        let err = validate_api_key(&headers(&valid_key), &client)
+            .await
+            .err()
+            .expect("expired");
+        assert_eq!(err.code(), tonic::Code::Unauthenticated);
     }
 }

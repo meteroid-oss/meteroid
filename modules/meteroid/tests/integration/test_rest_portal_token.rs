@@ -46,6 +46,7 @@ async fn test_rest_customer_portal_token() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "portal-token-key".to_string(),
+                ..Default::default()
             },
         ))
         .await

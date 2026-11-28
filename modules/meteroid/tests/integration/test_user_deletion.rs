@@ -179,6 +179,7 @@ async fn test_delete_user() {
         .clone()
         .create_api_token(api::apitokens::v1::CreateApiTokenRequest {
             name: "doomed".to_string(),
+            ..Default::default()
         })
         .await
         .unwrap()

@@ -32,6 +32,7 @@ async fn test_internal_basic() {
         .create_api_token(tonic::Request::new(
             meteroid_grpc::meteroid::api::apitokens::v1::CreateApiTokenRequest {
                 name: "some-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await

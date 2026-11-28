@@ -28,6 +28,11 @@ import {
   Label,
   RadioGroup,
   RadioGroupItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Skeleton,
   Table,
   TableBody,
@@ -36,6 +41,9 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
@@ -45,12 +53,26 @@ import {
   CopyIcon,
   KeyRoundIcon,
   PlusIcon,
+  RefreshCwIcon,
   Trash2Icon,
 } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { toast } from 'sonner'
 
-import { ApiKeyKind, invalidOrigins, parseOrigins } from '@/features/settings/apiKeys/apiKeyForm'
+import {
+  AccessLevel,
+  ApiKeyKind,
+  ApiResourceKey,
+  LIFETIMES,
+  RESOURCES,
+  ROLL_GRACE,
+  ResourceLevels,
+  describeExpiry,
+  grantsAnything,
+  invalidOrigins,
+  noAccess,
+  parseOrigins,
+} from '@/features/settings/apiKeys/apiKeyForm'
 import { SettingsEmptyState, SettingsSection } from '@/features/settings/components/SettingsSection'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
@@ -59,8 +81,14 @@ import {
   createPublishableKey as createPublishableKeyMutation,
   listApiTokens,
   revokeApiToken as revokeApiTokenMutation,
+  rollApiToken as rollApiTokenMutation,
 } from '@/rpc/api/apitokens/v1/apitokens-ApiTokensService_connectquery'
-import { ApiTokenKind } from '@/rpc/api/apitokens/v1/models_pb'
+import {
+  ApiAccessLevel,
+  ApiKeyPermissions,
+  ApiResource,
+  ApiTokenKind,
+} from '@/rpc/api/apitokens/v1/models_pb'
 import { parseAndFormatDateTime } from '@/utils/date'
 
 interface CreatedKey {
@@ -81,6 +109,36 @@ const KINDS: { value: ApiKeyKind; label: string; description: string }[] = [
   },
 ]
 
+const RESOURCE_TO_API: Record<ApiResourceKey, ApiResource> = {
+  customers: ApiResource.CUSTOMERS,
+  subscriptions: ApiResource.SUBSCRIPTIONS,
+  invoices: ApiResource.INVOICES,
+  payments: ApiResource.PAYMENTS,
+  catalog: ApiResource.CATALOG,
+  usage: ApiResource.USAGE,
+  entitlements: ApiResource.ENTITLEMENTS,
+  webhooks: ApiResource.WEBHOOKS,
+  batchJobs: ApiResource.BATCH_JOBS,
+}
+
+const LEVEL_TO_API: Record<AccessLevel, ApiAccessLevel> = {
+  none: ApiAccessLevel.NONE,
+  read: ApiAccessLevel.READ,
+  write: ApiAccessLevel.WRITE,
+}
+
+const LEVEL_LABEL: Record<ApiAccessLevel, string> = {
+  [ApiAccessLevel.NONE]: 'None',
+  [ApiAccessLevel.READ]: 'Read',
+  [ApiAccessLevel.WRITE]: 'Write',
+}
+
+const grantsSummary = (permissions: ApiKeyPermissions) =>
+  RESOURCES.map(resource => {
+    const grant = permissions.grants.find(g => g.resource === RESOURCE_TO_API[resource.key])
+    return { label: resource.label, level: grant?.level ?? ApiAccessLevel.NONE }
+  }).filter(g => g.level !== ApiAccessLevel.NONE)
+
 export const ApiKeysTab: FunctionComponent = () => {
   const queryClient = useQueryClient()
 
@@ -92,8 +150,14 @@ export const ApiKeysTab: FunctionComponent = () => {
   const [originsOpen, setOriginsOpen] = useState(false)
   const [originsText, setOriginsText] = useState('')
   const [tokenToDelete, setTokenToDelete] = useState<{ id: string; name: string } | null>(null)
+  const [restricted, setRestricted] = useState(false)
+  const [levels, setLevels] = useState<ResourceLevels>(noAccess)
+  const [lifetime, setLifetime] = useState('never')
+  const [tokenToRoll, setTokenToRoll] = useState<{ id: string; name: string } | null>(null)
+  const [rollGrace, setRollGrace] = useState('24')
 
   const refused = kind === 'publishable' ? invalidOrigins(originsText) : []
+  const grantsNothing = kind === 'secret' && restricted && !grantsAnything(levels)
 
   const resetForm = () => {
     setIsCreateDialogOpen(false)
@@ -101,6 +165,9 @@ export const ApiKeysTab: FunctionComponent = () => {
     setKind('secret')
     setOriginsOpen(false)
     setOriginsText('')
+    setRestricted(false)
+    setLevels(noAccess())
+    setLifetime('never')
   }
 
   const invalidateList = () =>
@@ -151,6 +218,17 @@ export const ApiKeysTab: FunctionComponent = () => {
     },
   })
 
+  const rollTokenMut = useMutation(rollApiTokenMutation, {
+    onSuccess: async res => {
+      await invalidateList()
+      setDisplayed({ kind: 'secret', apiKey: res.apiKey })
+      setTokenToRoll(null)
+    },
+    onError: error => {
+      toast.error(error.rawMessage || 'Failed to roll the API key')
+    },
+  })
+
   const tokens = useQuery(listApiTokens)
 
   const sortedTokens = tokens.data?.apiTokens
@@ -166,7 +244,7 @@ export const ApiKeysTab: FunctionComponent = () => {
       toast.error('Please enter a key name')
       return
     }
-    if (refused.length > 0) return
+    if (refused.length > 0 || grantsNothing) return
     setLoading(true)
     if (kind === 'publishable') {
       createPublishableMut.mutateAsync({
@@ -176,6 +254,15 @@ export const ApiKeysTab: FunctionComponent = () => {
     } else {
       createTokenMut.mutateAsync({
         name: tokenName.trim(),
+        permissions: restricted
+          ? {
+              grants: RESOURCES.map(resource => ({
+                resource: RESOURCE_TO_API[resource.key],
+                level: LEVEL_TO_API[levels[resource.key]],
+              })),
+            }
+          : undefined,
+        lifetimeDays: LIFETIMES.find(l => l.value === lifetime)?.days,
       })
     }
   }
@@ -187,6 +274,8 @@ export const ApiKeysTab: FunctionComponent = () => {
       id: tokenToDelete.id,
     })
   }
+
+  const now = new Date()
 
   const copy = (value: string) => copyToClipboard(value, () => toast.success('Copied !'))
 
@@ -261,6 +350,9 @@ export const ApiKeysTab: FunctionComponent = () => {
                 <TableBody>
                   {sortedTokens.map(token => {
                     const publishable = token.kind === ApiTokenKind.PUBLISHABLE
+                    const expiry = describeExpiry(token.expiresAt, now)
+                    const rollable =
+                      !publishable && !token.replacedById && expiry?.tone !== 'expired'
                     return (
                       <TableRow key={token.id}>
                         <TableCell className="max-w-[240px]">
@@ -273,7 +365,45 @@ export const ApiKeysTab: FunctionComponent = () => {
                                 Publishable
                               </Badge>
                             )}
+                            {token.permissions && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>
+                                    <Badge variant="outline" size="sm">
+                                      Restricted
+                                    </Badge>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {grantsSummary(token.permissions).map(g => (
+                                    <div key={g.label}>
+                                      {g.label}: {LEVEL_LABEL[g.level]}
+                                    </div>
+                                  ))}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            {token.replacedById && (
+                              <Badge variant="secondary" size="sm">
+                                Rolled
+                              </Badge>
+                            )}
                           </div>
+                          {expiry && (
+                            <div
+                              className={cn(
+                                'text-xs',
+                                expiry.tone === 'muted' && 'text-muted-foreground',
+                                expiry.tone === 'warning' && 'text-warning',
+                                expiry.tone === 'expired' && 'text-destructive'
+                              )}
+                            >
+                              {expiry.label}
+                              {token.lifetimeDays && !token.replacedById
+                                ? ` · roll every ${token.lifetimeDays} days`
+                                : ''}
+                            </div>
+                          )}
                           {publishable && (
                             <div
                               className="truncate text-xs text-muted-foreground"
@@ -306,10 +436,25 @@ export const ApiKeysTab: FunctionComponent = () => {
                         <TableCell className="w-px whitespace-nowrap text-sm text-muted-foreground">
                           {token.lastUsedAt ? parseAndFormatDateTime(token.lastUsedAt) : 'Never'}
                         </TableCell>
-                        <TableCell className="w-px">
+                        <TableCell className="w-px whitespace-nowrap">
+                          {rollable && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Roll the key"
+                              onClick={() => {
+                                setRollGrace('24')
+                                setTokenToRoll({ id: token.id, name: token.name })
+                              }}
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                            >
+                              <RefreshCwIcon size={16} />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
+                            title="Revoke the key"
                             onClick={() => setTokenToDelete({ id: token.id, name: token.name })}
                             className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
                           >
@@ -377,6 +522,90 @@ export const ApiKeysTab: FunctionComponent = () => {
                 )
               })}
             </RadioGroup>
+            {kind === 'secret' && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <FieldLabel>Access</FieldLabel>
+                  <RadioGroup
+                    value={restricted ? 'restricted' : 'full'}
+                    onValueChange={value => setRestricted(value === 'restricted')}
+                    className="flex gap-4"
+                  >
+                    {[
+                      { value: 'full', label: 'Full access' },
+                      { value: 'restricted', label: 'Restricted' },
+                    ].map(option => (
+                      <Label
+                        key={option.value}
+                        htmlFor={`api-key-access-${option.value}`}
+                        className="flex cursor-pointer items-center gap-2 font-normal"
+                      >
+                        <RadioGroupItem
+                          value={option.value}
+                          id={`api-key-access-${option.value}`}
+                        />
+                        {option.label}
+                      </Label>
+                    ))}
+                  </RadioGroup>
+                </div>
+                {restricted && (
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {RESOURCES.map(resource => (
+                      <div
+                        key={resource.key}
+                        className="flex items-center justify-between gap-3 px-3 py-2"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-medium">{resource.label}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {resource.description}
+                          </span>
+                        </span>
+                        <Select
+                          value={levels[resource.key]}
+                          onValueChange={value =>
+                            setLevels({ ...levels, [resource.key]: value as AccessLevel })
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-24 shrink-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            <SelectItem value="read">Read</SelectItem>
+                            <SelectItem value="write">Write</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {grantsNothing && (
+                  <p className="text-xs text-destructive">Grant at least one resource.</p>
+                )}
+                <div className="space-y-2">
+                  <FieldLabel>Expires</FieldLabel>
+                  <Select value={lifetime} onValueChange={setLifetime}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LIFETIMES.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {lifetime !== 'never' && (
+                    <p className="text-xs text-muted-foreground">
+                      Roll the key before it expires: the new key gets the same lifetime.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             {kind === 'publishable' && (
               <Collapsible open={originsOpen} onOpenChange={setOriginsOpen} className="space-y-2">
                 <CollapsibleTrigger asChild>
@@ -419,13 +648,59 @@ export const ApiKeysTab: FunctionComponent = () => {
             </Button>
             <Button
               onClick={createApiToken}
-              disabled={!tokenName.trim() || loading || refused.length > 0}
+              disabled={!tokenName.trim() || loading || refused.length > 0 || grantsNothing}
             >
               {loading ? 'Creating...' : 'Create key'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!tokenToRoll} onOpenChange={() => setTokenToRoll(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Roll API key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A new secret replaces <span className="font-semibold">{tokenToRoll?.name}</span>, with
+              the same permissions and lifetime. Keep the old one working while you deploy the new
+              one.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <FieldLabel>The old key stops working</FieldLabel>
+            <Select value={rollGrace} onValueChange={setRollGrace}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLL_GRACE.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Event ingestion may keep accepting the old key for up to two minutes.
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={rollTokenMut.isPending}
+              onClick={() =>
+                tokenToRoll &&
+                rollTokenMut.mutate({
+                  id: tokenToRoll.id,
+                  gracePeriodHours: ROLL_GRACE.find(g => g.value === rollGrace)?.hours ?? 0,
+                })
+              }
+            >
+              Roll key
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!tokenToDelete} onOpenChange={() => setTokenToDelete(null)}>
         <AlertDialogContent>

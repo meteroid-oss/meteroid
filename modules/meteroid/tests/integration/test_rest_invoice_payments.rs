@@ -45,6 +45,7 @@ impl Fixture {
             .api_tokens
             .create_api_token(CreateApiTokenRequest {
                 name: "invoice-payments".to_owned(),
+                ..Default::default()
             })
             .await
             .unwrap()

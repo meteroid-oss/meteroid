@@ -31,6 +31,9 @@ message ResolveApiKeyResponse {
   // Unset (default PRODUCTION) when talking to an older meteroid.
   api.tenants.v1.TenantEnvironmentEnum environment = 4;
   bool keep_last_events = 5;
+  // A restricted key without write access to usage; false from an older meteroid.
+  bool ingest_denied = 6;
+  optional int64 expires_at_unix = 7;
 }
 
 message ReportApiKeyUsageRequest {

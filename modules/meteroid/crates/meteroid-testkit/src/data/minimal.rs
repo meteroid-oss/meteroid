@@ -78,6 +78,9 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             kind: diesel_models::enums::ApiTokenKindEnum::Secret,
             allowed_origins: vec![],
             publishable_key: None,
+            permissions: None,
+            expires_at: None,
+            lifetime_days: None,
         }.insert(tx).await?;
 
         // create invoicing entity

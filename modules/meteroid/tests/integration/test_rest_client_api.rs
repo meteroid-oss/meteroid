@@ -212,6 +212,7 @@ async fn test_rest_client_api() {
         .create_api_token(tonic::Request::new(
             api::apitokens::v1::CreateApiTokenRequest {
                 name: "client-api-key".to_string(),
+                ..Default::default()
             },
         ))
         .await

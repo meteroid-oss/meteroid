@@ -4,7 +4,8 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::apitokens::v1::{
     CreateApiTokenRequest, CreateApiTokenResponse, CreatePublishableKeyRequest,
     CreatePublishableKeyResponse, ListApiTokensRequest, ListApiTokensResponse,
-    RevokeApiTokenRequest, RevokeApiTokenResponse, api_tokens_service_server::ApiTokensService,
+    RevokeApiTokenRequest, RevokeApiTokenResponse, RollApiTokenRequest, RollApiTokenResponse,
+    api_tokens_service_server::ApiTokensService,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
@@ -50,22 +51,27 @@ impl ApiTokensService for ApiTokensServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
+        let permissions = req
+            .permissions
+            .map(mapping::api_token::permissions_from_api)
+            .transpose()
+            .map_err(ApiTokenApiError::InvalidArgument)?;
+
         let (api_key, res) = self
             .store
-            .insert_api_token(
+            .insert_api_token_with_policy(
                 actor_typed,
                 domain::ApiTokenNew {
                     name: req.name,
                     tenant_id,
                 },
+                domain::SecretKeyPolicy {
+                    permissions,
+                    lifetime_days: req.lifetime_days,
+                },
             )
             .await
-            .map_err(|e| {
-                ApiTokenApiError::StoreError(
-                    "Unable to create api token".to_string(),
-                    Box::new(e.into_error()),
-                )
-            })?;
+            .map_err(ApiTokenApiError::from)?;
 
         let response = CreateApiTokenResponse {
             api_key,
@@ -99,6 +105,30 @@ impl ApiTokensService for ApiTokensServiceComponents {
 
         Ok(Response::new(CreatePublishableKeyResponse {
             details: Some(mapping::api_token::domain_to_api(res)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn roll_api_token(
+        &self,
+        request: Request<RollApiTokenRequest>,
+    ) -> Result<Response<RollApiTokenResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let req = request.into_inner();
+
+        let token_id = common_domain::ids::ApiTokenId::from_proto(&req.id)?;
+        let grace = chrono::Duration::hours(req.grace_period_hours.into());
+
+        let (api_key, token) = self
+            .store
+            .roll_api_token(actor, &token_id, tenant_id, grace)
+            .await
+            .map_err(ApiTokenApiError::from)?;
+
+        Ok(Response::new(RollApiTokenResponse {
+            api_key,
+            details: Some(mapping::api_token::domain_to_api(token)),
         }))
     }
 
