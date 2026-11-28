@@ -36,3 +36,11 @@ jobs:
             helm template meteroid k8s/meteroid -f "$values" > /dev/null
             echo "::endgroup::"
           done
+      - name: Private registry covers every deployment
+        run: |
+          rendered=$(helm template meteroid k8s/meteroid -f k8s/meteroid/ci/private-registry-values.yaml)
+          images=$(grep -c 'image: "registry.example.com/meteroid-oss/' <<< "$rendered")
+          secrets=$(grep -c -- '- name: regcred$' <<< "$rendered")
+          legacy=$(grep -c -- '- name: legacy-regcred$' <<< "$rendered")
+          echo "images=$images pull secrets=$secrets legacy pull secrets=$legacy"
+          test "$images" -eq 4 && test "$secrets" -eq 4 && test "$legacy" -eq 4

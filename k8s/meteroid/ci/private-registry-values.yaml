@@ -1,0 +1,16 @@
+global:
+  imageRegistry: registry.example.com
+  imagePullSecrets:
+    - name: regcred
+  objectStore:
+    uri: s3://meteroid
+  secrets:
+    existingSecretName: meteroid-secrets
+  kafka:
+    bootstrapServers: kafka:9092
+  clickhouse:
+    address: tcp://clickhouse:9000
+    httpAddress: http://clickhouse:8123
+    tcpAddress: clickhouse:9000
+imagePullSecrets:
+  - legacy-regcred

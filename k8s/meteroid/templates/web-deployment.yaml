@@ -16,6 +16,10 @@ spec:
       labels:
         {{- include "meteroid.webSelectorLabels" . | nindent 8 }}
     spec:
+      {{- with include "meteroid.imagePullSecrets" . }}
+      imagePullSecrets:
+        {{- . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}-web
           image: {{ include "meteroid.image" (dict "root" . "component" "web" "image" .Values.web.image) | quote }}

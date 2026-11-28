@@ -1,6 +1,7 @@
 # enterprise: the official images (ghcr.io/meteroid-oss/meteroid-api, ...), Meteroid Enterprise.
 # oss: the AGPL images built from the public repository (ghcr.io/meteroid-oss/meteroid-oss-api,
-# ...), without the license settings. `<component>.image.repository` overrides either.
+# ...), without the license settings. `global.imageRegistry` changes their registry, and
+# `<component>.image.repository` replaces a whole repository.
 edition: enterprise
 
 commonSettings: &commonSettings
@@ -42,6 +43,14 @@ serviceAccount:
   automountServiceAccountToken: true
 
 global:
+  # Registry host of the Meteroid images, without meteroid-oss, e.g. a private or air-gapped one
+  # holding copies of them: images become <imageRegistry>/meteroid-oss/<name>. Defaults to ghcr.io.
+  # A parent chart's global.imageRegistry applies too.
+  imageRegistry: ""
+  # Pull secrets of every component, e.g. [{name: regcred}]. The former top-level
+  # `imagePullSecrets` key is still read.
+  imagePullSecrets: []
+
   publicAppUrl: "https://app.example.com"
   publicApiUrl: "https://rpc.example.com"
   publicRestApiUrl: "https://api.example.com"
@@ -164,7 +173,7 @@ ingress:
 api:
   <<: *commonSettings
   image:
-    # Defaults to the edition's image
+    # Defaults to the edition's image, under global.imageRegistry
     repository: ""
     # Defaults to the chart's appVersion
     tag: ""
@@ -181,7 +190,7 @@ api:
 web:
   <<: *commonSettings
   image:
-    # Defaults to the edition's image
+    # Defaults to the edition's image, under global.imageRegistry
     repository: ""
     # Defaults to the chart's appVersion
     tag: ""
@@ -198,7 +207,7 @@ metering:
   <<: *commonSettings
   enabled: true
   image:
-    # Defaults to the edition's image
+    # Defaults to the edition's image, under global.imageRegistry
     repository: ""
     # Defaults to the chart's appVersion
     tag: ""
@@ -213,7 +222,7 @@ metering:
 worker:
   <<: *commonSettings
   image:
-    # Defaults to the edition's image
+    # Defaults to the edition's image, under global.imageRegistry
     repository: ""
     # Defaults to the chart's appVersion
     tag: ""

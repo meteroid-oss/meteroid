@@ -39,6 +39,7 @@ pub async fn run_workers(
     let currency_rate_service = OpenexchangeRatesService::new(
         OpenexchangeRatesService::http_client(),
         config.openexchangerates_api_key.clone(),
+        config.rates_url(),
     );
 
     let pdf_service = Arc::new(PdfRenderingService::try_new(

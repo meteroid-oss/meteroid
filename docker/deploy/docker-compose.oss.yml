@@ -4,13 +4,13 @@
 
 services:
   meteroid-api:
-    image: ghcr.io/meteroid-oss/meteroid-oss-api:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-oss-api:${METEROID_VERSION:-latest}
 
   meteroid-worker:
-    image: ghcr.io/meteroid-oss/meteroid-oss-worker:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-oss-worker:${METEROID_VERSION:-latest}
 
   metering-api:
-    image: ghcr.io/meteroid-oss/meteroid-oss-metering:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-oss-metering:${METEROID_VERSION:-latest}
 
   meteroid-web:
-    image: ghcr.io/meteroid-oss/meteroid-oss-web:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-oss-web:${METEROID_VERSION:-latest}

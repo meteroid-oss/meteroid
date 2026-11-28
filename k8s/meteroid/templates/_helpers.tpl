@@ -174,14 +174,30 @@ The edition: enterprise (the default) or oss
 {{- end }}
 
 {{/*
-A component's image: its `image.repository`, else the edition's image. Takes root, component and image.
+A component's image: its `image.repository`, else the edition's image under `global.imageRegistry`.
+Takes root, component and image.
 */}}
 {{- define "meteroid.image" -}}
 {{- $names := dict
   "enterprise" (dict "api" "meteroid-api" "worker" "meteroid-worker" "metering" "metering-api" "web" "meteroid-web")
   "oss" (dict "api" "meteroid-oss-api" "worker" "meteroid-oss-worker" "metering" "meteroid-oss-metering" "web" "meteroid-oss-web") }}
-{{- $default := printf "ghcr.io/meteroid-oss/%s" (index $names (include "meteroid.edition" .root) .component) }}
+{{- $registry := .root.Values.global.imageRegistry | default "ghcr.io" | trimSuffix "/" }}
+{{- $default := printf "%s/meteroid-oss/%s" $registry (index $names (include "meteroid.edition" .root) .component) }}
 {{- printf "%s:%s" (.image.repository | default $default) (.image.tag | default .root.Chart.AppVersion | toString) }}
+{{- end }}
+
+{{/*
+The pods' pull secrets: `global.imagePullSecrets`, then the former top-level `imagePullSecrets`.
+Entries are names or `{name: ...}` maps.
+*/}}
+{{- define "meteroid.imagePullSecrets" -}}
+{{- $secrets := list }}
+{{- range concat (.Values.global.imagePullSecrets | default list) (.Values.imagePullSecrets | default list) }}
+{{- $secrets = append $secrets (kindIs "string" . | ternary (dict "name" .) .) }}
+{{- end }}
+{{- with uniq $secrets }}
+{{- toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*

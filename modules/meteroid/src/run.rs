@@ -38,7 +38,12 @@ pub async fn run_api(edition: impl FnOnce() -> Modules) -> Result<(), Box<dyn st
     migrations::run(&store.pool).await?;
     // Once the schema is current: edition state (e.g. the instance license) lives in it.
     modules.startup(&store, &config).await;
-    bootstrap::bootstrap_once(store.clone(), &config.instance_bootstrap).await?;
+    bootstrap::bootstrap_once(
+        store.clone(),
+        &config.instance_bootstrap,
+        config.rates_url(),
+    )
+    .await?;
     setup_eventbus_handlers(store.clone(), config.clone(), &modules).await;
 
     let ready = Arc::new(AtomicBool::new(true));
@@ -173,7 +178,12 @@ async fn run_standalone_serving(
     migrations::run(&store.pool).await?;
     // Once the schema is current: edition state (e.g. the instance license) lives in it.
     modules.startup(&store, &config).await;
-    bootstrap::bootstrap_once(store.clone(), &config.instance_bootstrap).await?;
+    bootstrap::bootstrap_once(
+        store.clone(),
+        &config.instance_bootstrap,
+        config.rates_url(),
+    )
+    .await?;
     setup_eventbus_handlers(store.clone(), config.clone(), &modules).await;
 
     let ready = Arc::new(AtomicBool::new(true));
@@ -221,6 +231,7 @@ async fn run_standalone_serving(
     let currency_rate_service = OpenexchangeRatesService::new(
         OpenexchangeRatesService::http_client(),
         config.openexchangerates_api_key.clone(),
+        config.rates_url(),
     );
 
     let pdf_service = Arc::new(PdfRenderingService::try_new(

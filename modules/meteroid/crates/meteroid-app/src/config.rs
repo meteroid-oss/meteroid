@@ -55,6 +55,11 @@ pub struct Config {
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
 
+    /// Base URL of the rates API for the historical backfill, and for live rates without an
+    /// OpenExchangeRates key. Unset: the public Meteroid rates API.
+    #[envconfig(from = "METEROID_RATES_URL")]
+    pub rates_url: Option<String>,
+
     #[envconfig(nested)]
     pub common: CommonConfig,
 
@@ -173,6 +178,14 @@ impl Config {
         if !ignored.is_empty() {
             tracing::warn!("Settings ignored by this edition: {}", ignored.join(", "));
         }
+    }
+
+    pub fn rates_url(&self) -> &str {
+        self.rates_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .unwrap_or(crate::constants::OSS_API)
     }
 
     pub fn mailer_enabled(&self) -> bool {

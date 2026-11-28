@@ -16,7 +16,10 @@ impl HistoricalRatesFromUsdRowNew {
             .values(self)
             .on_conflict(r_dsl::date)
             .do_update()
-            .set(r_dsl::rates.eq(&self.rates));
+            .set((
+                r_dsl::rates.eq(excluded(r_dsl::rates)),
+                r_dsl::updated_at.eq(excluded(r_dsl::updated_at)),
+            ));
         crate::debug_sql(&query);
 
         query
@@ -37,7 +40,10 @@ impl HistoricalRatesFromUsdRowNew {
             .values(values)
             .on_conflict(r_dsl::date)
             .do_update()
-            .set(r_dsl::rates.eq(excluded(r_dsl::rates)));
+            .set((
+                r_dsl::rates.eq(excluded(r_dsl::rates)),
+                r_dsl::updated_at.eq(excluded(r_dsl::updated_at)),
+            ));
 
         crate::debug_sql(&query);
 

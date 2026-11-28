@@ -1,5 +1,3 @@
-use crate::constants::OSS_API;
-
 use async_trait::async_trait;
 
 use error_stack::{Report, ResultExt};
@@ -36,20 +34,33 @@ pub struct ExchangeRates {
 
 pub struct OpenexchangeRatesService {
     api_key: Option<String>,
+    rates_url: String,
     client: reqwest::Client,
 }
 
 impl OpenexchangeRatesService {
-    pub fn new(client: reqwest::Client, api_key: Option<String>) -> Self {
+    pub fn new(client: reqwest::Client, api_key: Option<String>, rates_url: &str) -> Self {
         let api_key = api_key.filter(|s| !s.is_empty());
+        let rates_url = rates_url.trim_end_matches('/').to_string();
 
         if api_key.is_none() {
-            log::warn!(
-                "OpenExchangeRates API key is not set. Using public OSS API for testing purposes."
-            );
+            if rates_url == crate::constants::OSS_API {
+                log::warn!(
+                    "OpenExchangeRates API key is not set. Using the public Meteroid rates API at \
+                     {rates_url}, intended for testing: use an OpenExchangeRates key in production."
+                );
+            } else {
+                log::warn!(
+                    "OpenExchangeRates API key is not set. Using the rates API at {rates_url} (METEROID_RATES_URL)."
+                );
+            }
         }
 
-        Self { api_key, client }
+        Self {
+            api_key,
+            rates_url,
+            client,
+        }
     }
 
     pub fn http_client() -> reqwest::Client {
@@ -69,7 +80,7 @@ impl OpenexchangeRatesService {
             // This api is provided for testing/development purposes only, with no warranties.
             // In production, use openexchangerates or equivalent.
             {
-                format!("{OSS_API}/rates/{base}?symbols={symbols}")
+                format!("{}/rates/{base}?symbols={symbols}", self.rates_url)
             }
             Some(api_key) => format!(
                 "https://openexchangerates.org/api/latest.json?app_id={api_key}&base={base}&symbols={symbols}"

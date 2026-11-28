@@ -50,12 +50,50 @@ See [`values.yaml`](values.yaml). The values you will set in most installs:
 | `global.smtp.host`, `from`, `customerFromAddr`, `replyTo` | Email delivery. `from` is required with a host; customer emails go out from `customerFromAddr`, by default the address of `from`. Credentials: `global.secrets.smtp.*` |
 | `global.secrets.kafka.password`, `clickhouse.password`, `redis.password` | Their credentials |
 | `edition` | `enterprise` (default) or `oss`: the images the chart runs, and whether it sets the license settings |
-| `<component>.image.repository`, `<component>.image.tag` | Another image, e.g. from your own registry. The defaults are the edition's image and the chart's `appVersion` |
+| `global.imageRegistry`, `global.imagePullSecrets` | Registry host of the Meteroid images (default `ghcr.io`), without `meteroid-oss`, and the pull secrets of every pod. See [Private or air-gapped registry](#private-or-air-gapped-registry) |
+| `<component>.image.repository`, `<component>.image.tag` | Another image, over `global.imageRegistry`. The defaults are the edition's image and the chart's `appVersion` |
 | `<component>.resources`, `<component>.autoscaling` | Unset by default; autoscaling needs CPU requests |
 | `<component>.extraEnv` | Extra environment variables for a component |
 
 Components are `api`, `worker`, `metering` and `web`. The worker runs the scheduled jobs and queue consumers. Until
 2.1 the chart also reads the former `scheduler` key, over `worker`: move its settings to `worker`.
+
+## Private or air-gapped registry
+
+To pull every image from a registry you run (Harbor, Nexus, Artifactory, GitLab, ...), copy the images into it, keeping
+their `meteroid-oss/<name>` path, then point the chart at it:
+
+```yaml
+global:
+  imageRegistry: registry.example.com
+  imagePullSecrets:
+    - name: regcred
+```
+
+The API, worker, metering and web pods then run `registry.example.com/meteroid-oss/<name>:<tag>` with that pull secret.
+`global.imageRegistry` is the registry host only, without `meteroid-oss` (unlike `METEROID_REGISTRY` in Docker Compose,
+which includes it). The former top-level `imagePullSecrets` key is still read.
+
+In an umbrella chart, a parent's `global.imageRegistry` now also applies to the Meteroid images: if your proxy does not
+mirror ghcr.io, override `<component>.image.repository`. To list the images to copy, and copy them with every
+architecture:
+
+```bash
+helm template meteroid oci://ghcr.io/meteroid-oss/charts/meteroid --version <version> -f values.yaml | grep 'image:'
+skopeo copy --all docker://ghcr.io/meteroid-oss/meteroid-api:<tag> docker://registry.example.com/meteroid-oss/meteroid-api:<tag>
+```
+
+The chart itself can be mirrored the same way: `helm pull oci://ghcr.io/meteroid-oss/charts/meteroid --version <version>`,
+then `helm push meteroid-<version>.tgz oci://registry.example.com/charts`.
+
+Without internet access, also set `global.usageTelemetry: false`, and point the API and worker at a reachable rates API
+with `METEROID_RATES_URL` in `<component>.extraEnv`. The historical rates backfill always reads it; an
+`OPENEXCHANGERATES_API_KEY` only replaces it for the live rates. When no rates API answers, the API still starts: it logs
+a warning and retries the historical rates backfill on its next start.
+
+A custom rates URL must mirror the default rates API, `https://api.metero.id/oss/v1`: `GET {url}/historical-rates` returns
+the history as Parquet (`base_currency` USD, `timestamp` in Unix seconds, a column per currency), and
+`GET {url}/rates/{base}?symbols=...` the latest rates as OpenExchangeRates-style JSON (`base`, `rates`, `timestamp`).
 
 ## Licensing
 

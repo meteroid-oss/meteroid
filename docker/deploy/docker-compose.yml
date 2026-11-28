@@ -21,7 +21,7 @@ services:
 
   ### Infrastructure Services
   meteroid-db:
-    image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-postgres:18.3-standard
     ports:
       - '5432:5432'
     user: postgres
@@ -49,7 +49,7 @@ services:
   # Ensure clickhouse_coordination folders are setup with the correct user permissions
   # clickhouse-server seems to use uid:gid -> 101:101, and default volume permissions are based on root
   clickhouse-volume-init:
-    image: alpine:3.21
+    image: ${DOCKERHUB_REGISTRY:-docker.io}/library/alpine:3.21
     user: root
     command:
       - sh
@@ -65,7 +65,7 @@ services:
     depends_on:
       clickhouse-volume-init:
         condition: service_completed_successfully
-    image: clickhouse/clickhouse-server:25.6.2-alpine
+    image: ${DOCKERHUB_REGISTRY:-docker.io}/clickhouse/clickhouse-server:25.6.2-alpine
     ports:
       - 8123:8123
       - 9000:9000
@@ -93,7 +93,7 @@ services:
     logging: *logging
 
   redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    image: ${REDPANDA_REGISTRY:-docker.redpanda.com}/redpandadata/redpanda:v23.3.1
     hostname: redpanda
     command:
       - redpanda start
@@ -117,7 +117,7 @@ services:
     logging: *logging
 
   redpanda-topic-create:
-    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    image: ${REDPANDA_REGISTRY:-docker.redpanda.com}/redpandadata/redpanda:v23.3.1
     depends_on:
       redpanda:
         condition: service_healthy
@@ -135,7 +135,7 @@ services:
   ### Meteroid Application Services
 
   meteroid-api:
-    image: ghcr.io/meteroid-oss/meteroid-api:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-api:${METEROID_VERSION:-latest}
     depends_on:
       meteroid-db:
         condition: service_healthy
@@ -184,6 +184,8 @@ services:
     #      - EGRESS_USE_PROXY_SSO=${EGRESS_USE_PROXY_SSO:-false}
     #      - WEBHOOK_DELIVERY_CONCURRENCY=${WEBHOOK_DELIVERY_CONCURRENCY:-32}
     #      - WEBHOOK_RETENTION_DAYS=${WEBHOOK_RETENTION_DAYS:-30}
+    #      # Optional: exchange rates API, for offline or air-gapped installs
+    #      - METEROID_RATES_URL=${METEROID_RATES_URL:-}
     #      # Optional: name shown in authenticator apps
     #      - METEROID_MFA_ISSUER=${METEROID_MFA_ISSUER:-Meteroid}
     #      # Optional: Telemetry
@@ -202,7 +204,7 @@ services:
     logging: *logging
 
   meteroid-worker:
-    image: ghcr.io/meteroid-oss/meteroid-worker:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-worker:${METEROID_VERSION:-latest}
     depends_on:
       meteroid-db:
         condition: service_healthy
@@ -248,6 +250,9 @@ services:
     #      - EGRESS_USE_PROXY_SSO=${EGRESS_USE_PROXY_SSO:-false}
     #      - WEBHOOK_DELIVERY_CONCURRENCY=${WEBHOOK_DELIVERY_CONCURRENCY:-32}
     #      - WEBHOOK_RETENTION_DAYS=${WEBHOOK_RETENTION_DAYS:-30}
+    #      # Optional: exchange rates source, for offline or air-gapped installs
+    #      - METEROID_RATES_URL=${METEROID_RATES_URL:-}
+    #      - OPENEXCHANGERATES_API_KEY=${OPENEXCHANGERATES_API_KEY:-}
     #      # Optional: name shown in authenticator apps
     #      - METEROID_MFA_ISSUER=${METEROID_MFA_ISSUER:-Meteroid}
     #      # Optional: Telemetry
@@ -261,7 +266,7 @@ services:
     logging: *logging
 
   metering-api:
-    image: ghcr.io/meteroid-oss/metering-api:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/metering-api:${METEROID_VERSION:-latest}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -290,7 +295,7 @@ services:
     logging: *logging
 
   meteroid-web:
-    image: ghcr.io/meteroid-oss/meteroid-web:${METEROID_VERSION:-latest}
+    image: ${METEROID_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-web:${METEROID_VERSION:-latest}
     depends_on:
       meteroid-api:
         condition: service_healthy

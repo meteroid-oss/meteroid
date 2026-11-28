@@ -40,9 +40,9 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "meteroid.serviceAccountName" . }}
-      {{- with .Values.imagePullSecrets }}
+      {{- with include "meteroid.imagePullSecrets" . }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- . | nindent 8 }}
       {{- end }}
       securityContext:
         {{- toYaml .Values.meteroid.podSecurityContext | nindent 8 }}

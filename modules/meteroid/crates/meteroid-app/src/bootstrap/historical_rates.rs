@@ -3,9 +3,14 @@ use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::RowAccessor;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 pub async fn fetch_parquet_file(url: &str) -> Result<Vec<u8>> {
-    let client = http_client_tracing::client();
+    let client = http_client_tracing::client_builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .context("Failed to build the HTTP client")?;
     let response = client
         .get(url)
         .send()

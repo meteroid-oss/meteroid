@@ -116,6 +116,12 @@ Then open [http://localhost:3000](http://localhost:3000) and create your account
 [Deploy with Docker Compose](https://docs.meteroid.com/self-hosting/docker-compose). For production, use the
 [Helm chart](https://docs.meteroid.com/self-hosting/kubernetes) in [`k8s/meteroid`](k8s/meteroid).
 
+Behind a private or air-gapped registry, set `METEROID_REGISTRY` (default `ghcr.io/meteroid-oss`), `DOCKERHUB_REGISTRY`
+(default `docker.io`) and `REDPANDA_REGISTRY` (default `docker.redpanda.com`) in `.env`, e.g.
+`METEROID_REGISTRY=registry.example.com/meteroid-oss`: it includes the `meteroid-oss` namespace, no trailing slash. `docker compose config --images` lists the images to copy there
+(`skopeo copy --all` keeps every architecture). The Docker daemon's `registry-mirrors` setting only applies to Docker
+Hub, hence the variables. See [`.env.example`](docker/deploy/.env.example) for the offline settings.
+
 Upgrading from 0.19 or a 1.0.0 release candidate? Follow
 [Upgrading to 2.0](https://docs.meteroid.com/self-hosting/upgrading-to-2-0).
 
